@@ -1,0 +1,26 @@
+{% extends 'complaints/base.html' %}
+{% load crispy_forms_tags %}
+
+{% block title %}Verify OTP{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0">Verify OTP</h4>
+            </div>
+            <div class="card-body">
+                <p class="mb-4">Please enter the 6-digit OTP sent to your mobile number.</p>
+                <form method="post">
+                    {% csrf_token %}
+                    {{ form|crispy }}
+                    <div class="mt-4">
+                        <button type="submit" class="btn btn-primary">Verify OTP</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

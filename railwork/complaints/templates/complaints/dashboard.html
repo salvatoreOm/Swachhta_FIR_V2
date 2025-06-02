@@ -1,0 +1,100 @@
+{% extends 'complaints/base.html' %}
+{% load i18n %}
+
+{% block title %}{% trans "Dashboard" %}{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <h5 class="card-title">{% trans "Total Complaints" %}</h5>
+                <h2 class="mb-0">{{ total_complaints }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card bg-warning text-dark">
+            <div class="card-body">
+                <h5 class="card-title">{% trans "Pending Complaints" %}</h5>
+                <h2 class="mb-0">{{ pending_complaints }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <h5 class="card-title">{% trans "Resolved Complaints" %}</h5>
+                <h2 class="mb-0">{{ resolved_complaints }}</h2>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h4 class="mb-0">{% trans "Recent Complaints" %}</h4>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>{% trans "Complaint ID" %}</th>
+                        <th>{% trans "Station" %}</th>
+                        <th>{% trans "Platform" %}</th>
+                        <th>{% trans "Reporter" %}</th>
+                        <th>{% trans "Status" %}</th>
+                        <th>{% trans "Created" %}</th>
+                        <th>{% trans "Actions" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for complaint in complaints %}
+                    <tr>
+                        <td>{{ complaint.complaint_number }}</td>
+                        <td>{{ complaint.station.name }}</td>
+                        <td>{{ complaint.platform_number }}</td>
+                        <td>{{ complaint.reporter_name }}</td>
+                        <td>
+                            <span class="badge {% if complaint.status == 'PENDING' %}bg-warning{% elif complaint.status == 'IN_PROGRESS' %}bg-info{% elif complaint.status == 'RESOLVED' %}bg-success{% else %}bg-secondary{% endif %}">
+                                {{ complaint.get_status_display }}
+                            </span>
+                        </td>
+                        <td>{{ complaint.created_at|date:"M d, Y H:i" }}</td>
+                        <td>
+                            <form method="post" action="{% url 'update_status' complaint.id %}" class="d-inline">
+                                {% csrf_token %}
+                                <select name="status" class="form-select form-select-sm d-inline-block w-auto me-2">
+                                    {% for status, display in complaint.STATUS_CHOICES %}
+                                    <option value="{{ status }}" {% if status == complaint.status %}selected{% endif %}>
+                                        {{ display }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                <button type="submit" class="btn btn-primary btn-sm">{% trans "Update" %}</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center">{% trans "No complaints found." %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Auto-submit status form when selection changes
+    document.querySelectorAll('select[name="status"]').forEach(select => {
+        select.addEventListener('change', e => {
+            e.target.closest('form').submit();
+        });
+    });
+</script>
+{% endblock %} 
