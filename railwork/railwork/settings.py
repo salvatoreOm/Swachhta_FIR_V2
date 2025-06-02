@@ -132,8 +132,11 @@ USE_TZ = True
 
 # Language settings
 LANGUAGE_COOKIE_NAME = 'django_language'
-LANGUAGE_COOKIE_AGE = None
+LANGUAGE_COOKIE_AGE = 86400 * 365  # 1 year
 LANGUAGE_COOKIE_PATH = '/'
+LANGUAGE_COOKIE_SECURE = False
+LANGUAGE_COOKIE_HTTPONLY = True
+LANGUAGE_COOKIE_SAMESITE = 'Lax'
 
 
 # Static files (CSS, JavaScript, Images)

@@ -1,24 +1,29 @@
 {% extends 'complaints/base.html' %}
+{% load i18n %}
 {% load crispy_forms_tags %}
 
-{% block title %}Verify OTP{% endblock %}
+{% block title %}{% trans "Verify OTP" %}{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header bg-primary text-white">
-                <h4 class="mb-0">Verify OTP</h4>
-            </div>
-            <div class="card-body">
-                <p class="mb-4">Please enter the 6-digit OTP sent to your mobile number.</p>
-                <form method="post">
-                    {% csrf_token %}
-                    {{ form|crispy }}
-                    <div class="mt-4">
-                        <button type="submit" class="btn btn-primary">Verify OTP</button>
-                    </div>
-                </form>
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h4 class="mb-0">{% trans "Verify Your Complaint" %}</h4>
+                </div>
+                <div class="card-body">
+                    <p class="mb-4">{% trans "Please enter the OTP sent to your mobile number." %}</p>
+                    <form method="post">
+                        {% csrf_token %}
+                        {{ form|crispy }}
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary">
+                                {% trans "Verify OTP" %}
+                            </button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
     </div>

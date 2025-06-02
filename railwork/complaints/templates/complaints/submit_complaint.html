@@ -1,31 +1,88 @@
 {% extends 'complaints/base.html' %}
+{% load i18n %}
 {% load crispy_forms_tags %}
 
-{% block title %}Submit Complaint{% endblock %}
+{% block title %}{% trans "Submit Complaint" %}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .photo-preview {
+        max-width: 200px;
+        max-height: 200px;
+        margin-top: 10px;
+    }
+    .photo-container {
+        margin-bottom: 20px;
+    }
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-md-8">
-        <div class="card">
-            <div class="card-header bg-primary text-white">
-                <h4 class="mb-0">Submit Cleanliness Complaint</h4>
-            </div>
-            <div class="card-body">
-                <div class="mb-4">
-                    <h5>Location Details:</h5>
-                    <p class="mb-1"><strong>Station:</strong> {{ station.name }}</p>
-                    <p class="mb-3"><strong>Platform Number:</strong> {{ platform_number }}</p>
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h4 class="mb-0">{% trans "Submit Cleanliness Complaint" %}</h4>
                 </div>
-
-                <form method="post" enctype="multipart/form-data">
-                    {% csrf_token %}
-                    {{ form|crispy }}
-                    <div class="mt-4">
-                        <button type="submit" class="btn btn-primary">Submit Complaint</button>
+                <div class="card-body">
+                    <div class="mb-4">
+                        <h5>Location Details:</h5>
+                        <p class="mb-1"><strong>Station:</strong> {{ station.name }}</p>
+                        <p class="mb-3"><strong>Platform Number:</strong> {{ platform_number }}</p>
                     </div>
-                </form>
+
+                    <form method="post" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        {{ form|crispy }}
+                        
+                        <div class="row">
+                            {% for i in "1234" %}
+                            <div class="col-md-6 photo-container">
+                                <label for="photo_{{ i }}" class="form-label">
+                                    {% if forloop.first %}
+                                    {% trans "Photo" %} {{ i }} ({% trans "Required" %})
+                                    {% else %}
+                                    {% trans "Photo" %} {{ i }} ({% trans "Optional" %})
+                                    {% endif %}
+                                </label>
+                                <input type="file" name="photo_{{ i }}" id="photo_{{ i }}" 
+                                       class="form-control" accept="image/*" 
+                                       {% if forloop.first %}required{% endif %}
+                                       onchange="previewImage(this, 'preview_{{ i }}')">
+                                <img id="preview_{{ i }}" class="photo-preview d-none">
+                            </div>
+                            {% endfor %}
+                        </div>
+
+                        <div class="d-grid gap-2 mt-4">
+                            <button type="submit" class="btn btn-primary">
+                                {% trans "Submit Complaint" %}
+                            </button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function previewImage(input, previewId) {
+    const preview = document.getElementById(previewId);
+    if (input.files && input.files[0]) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            preview.src = e.target.result;
+            preview.classList.remove('d-none');
+        }
+        reader.readAsDataURL(input.files[0]);
+    } else {
+        preview.src = '';
+        preview.classList.add('d-none');
+    }
+}
+</script>
 {% endblock %} 

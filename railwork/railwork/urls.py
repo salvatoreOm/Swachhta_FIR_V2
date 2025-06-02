@@ -21,14 +21,16 @@ from django.utils.translation import gettext_lazy as _
 from django.conf import settings
 from django.conf.urls.static import static
 
+# Non-translatable URLs
 urlpatterns = [
     path('i18n/', include('django.conf.urls.i18n')),
 ]
 
+# Translatable URLs
 urlpatterns += i18n_patterns(
     path('admin/', admin.site.urls),
     path('', include('complaints.urls')),
-    prefix_default_language=False
+    prefix_default_language=True  # Changed to True to always include language prefix
 )
 
 if settings.DEBUG:
