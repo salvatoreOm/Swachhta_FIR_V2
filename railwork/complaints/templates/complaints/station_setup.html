@@ -1,0 +1,254 @@
+{% extends 'complaints/base.html' %}
+{% load i18n %}
+{% load static %}
+
+{% block title %}{% trans "Station Setup" %}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .platform-locations {
+        margin-top: 20px;
+        padding: 15px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+    }
+    .location-type-checkbox {
+        margin-right: 15px;
+    }
+    .qr-preview {
+        max-width: 200px;
+        margin: 10px auto;
+        display: block;
+    }
+    #qrCodesContainer {
+        margin-top: 20px;
+    }
+    .qr-codes-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        gap: 20px;
+        margin-top: 20px;
+    }
+    .qr-code-item {
+        text-align: center;
+        border: 1px solid #ddd;
+        padding: 15px;
+        border-radius: 8px;
+        background: white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .qr-code-title {
+        font-size: 1.1em;
+        font-weight: bold;
+        margin-bottom: 10px;
+        color: #375BA4;
+    }
+    .qr-code-location {
+        margin: 10px 0;
+        color: #666;
+    }
+    .print-instructions {
+        font-style: italic;
+        color: #666;
+        margin-top: 5px;
+        font-size: 0.9em;
+    }
+    @media print {
+        .qr-code-item {
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h2 class="mb-4">{% trans "Station Setup" %}</h2>
+    
+    <form id="stationSetupForm">
+        <div class="row">
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <label for="cityName" class="form-label">{% trans "City Name" %}</label>
+                    <input type="text" class="form-control" id="cityName" required>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <label for="cityCode" class="form-label">{% trans "City Code" %}</label>
+                    <input type="text" class="form-control" id="cityCode" required>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <label for="stationName" class="form-label">{% trans "Station Name" %}</label>
+                    <input type="text" class="form-control" id="stationName" required>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <label for="stationCode" class="form-label">{% trans "Station Code" %}</label>
+                    <input type="text" class="form-control" id="stationCode" required>
+                </div>
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label for="totalPlatforms" class="form-label">{% trans "Total Platforms" %}</label>
+            <input type="number" class="form-control" id="totalPlatforms" min="1" value="1" required>
+        </div>
+
+        <div id="platformsContainer"></div>
+
+        <button type="submit" class="btn btn-primary">{% trans "Generate QR Codes" %}</button>
+    </form>
+
+    <div id="qrCodesContainer" class="mt-4"></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const platformsContainer = document.getElementById('platformsContainer');
+    const totalPlatformsInput = document.getElementById('totalPlatforms');
+    const locationTypes = [
+        {% for type in location_types %}
+        { id: {{ type.id }}, name: "{{ type.name }}" },
+        {% endfor %}
+    ];
+
+    function createPlatformSection(platformNumber) {
+        const section = document.createElement('div');
+        section.className = 'platform-locations mb-3';
+        section.innerHTML = `
+            <h4>{% trans "Platform" %} ${platformNumber}</h4>
+            <div class="location-types">
+                ${locationTypes.map(type => `
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" 
+                               id="platform${platformNumber}Type${type.id}" 
+                               value="${type.id}" 
+                               name="platform${platformNumber}Locations">
+                        <label class="form-check-label" for="platform${platformNumber}Type${type.id}">
+                            ${type.name}
+                        </label>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+        return section;
+    }
+
+    function updatePlatformSections() {
+        platformsContainer.innerHTML = '';
+        const totalPlatforms = parseInt(totalPlatformsInput.value) || 0;
+        
+        for (let i = 1; i <= totalPlatforms; i++) {
+            platformsContainer.appendChild(createPlatformSection(i));
+        }
+    }
+
+    totalPlatformsInput.addEventListener('change', updatePlatformSections);
+    updatePlatformSections();
+
+    document.getElementById('stationSetupForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const platformLocations = [];
+        const totalPlatforms = parseInt(totalPlatformsInput.value);
+        
+        for (let i = 1; i <= totalPlatforms; i++) {
+            const selectedLocations = Array.from(document.getElementsByName(`platform${i}Locations`))
+                .filter(cb => cb.checked)
+                .map(cb => parseInt(cb.value));
+            
+            if (selectedLocations.length > 0) {
+                platformLocations.push({
+                    platform_number: i,
+                    location_types: selectedLocations
+                });
+            }
+        }
+
+        const data = {
+            city_name: document.getElementById('cityName').value,
+            city_code: document.getElementById('cityCode').value,
+            station_name: document.getElementById('stationName').value,
+            station_code: document.getElementById('stationCode').value,
+            total_platforms: totalPlatforms,
+            platform_locations: platformLocations
+        };
+
+        try {
+            const response = await fetch('{% url "station_setup" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: JSON.stringify(data)
+            });
+
+            const result = await response.json();
+            const qrContainer = document.getElementById('qrCodesContainer');
+            
+            if (response.ok) {
+                const downloadUrl = `{% url 'download_qr_codes' 0 %}`.replace('0', result.station_id);
+                qrContainer.innerHTML = `
+                    <div class="alert alert-success mb-4">
+                        ${result.message}
+                        <a href="${downloadUrl}" class="btn btn-primary ms-3">
+                            {% trans "Download All QR Codes" %}
+                        </a>
+                    </div>
+                    <div class="alert alert-info">
+                        <h5>{% trans "Instructions:" %}</h5>
+                        <ul>
+                            <li>{% trans "Print these QR codes in good quality" %}</li>
+                            <li>{% trans "Place each QR code at its designated location" %}</li>
+                            <li>{% trans "Ensure QR codes are easily visible and accessible" %}</li>
+                            <li>{% trans "Consider laminating the QR codes for durability" %}</li>
+                        </ul>
+                    </div>
+                    <div class="qr-codes-grid">
+                        ${result.locations.map(location => `
+                            <div class="qr-code-item">
+                                <div class="qr-code-title">
+                                    {% trans "Platform" %} ${data.station_name} - ${location.platform_number}
+                                </div>
+                                <div class="qr-code-location">
+                                    ${location.location_type_name}
+                                </div>
+                                <img src="${location.qr_code_url}" class="qr-preview" alt="QR Code">
+                                <div class="print-instructions">
+                                    {% trans "Place this QR code at" %} ${location.location_type_name} {% trans "on Platform" %} ${location.platform_number}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            } else {
+                qrContainer.innerHTML = `
+                    <div class="alert alert-danger">
+                        ${result.message}
+                    </div>
+                `;
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            const qrContainer = document.getElementById('qrCodesContainer');
+            qrContainer.innerHTML = `
+                <div class="alert alert-danger">
+                    {% trans "An error occurred while setting up the station." %}
+                </div>
+            `;
+        }
+    });
+});
+</script>
+{% endblock %} 

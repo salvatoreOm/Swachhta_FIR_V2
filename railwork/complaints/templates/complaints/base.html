@@ -52,6 +52,11 @@
                     <li class="nav-item">
                         <a class="nav-link" href="{% url 'dashboard' %}">{% trans "Dashboard" %}</a>
                     </li>
+                    {% if user.is_authenticated %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'station_setup' %}">{% trans "Station Setup" %}</a>
+                    </li>
+                    {% endif %}
                     {% if request.GET.station and request.GET.platform %}
                     <li class="nav-item">
                         <a class="nav-link" href="{% url 'submit_complaint' %}?station={{ request.GET.station }}&platform={{ request.GET.platform }}">{% trans "Submit Complaint" %}</a>
@@ -62,7 +67,7 @@
                     {% csrf_token %}
                     {% get_current_language as CURRENT_LANGUAGE %}
                     {% get_current_language_bidi as LANGUAGE_BIDI %}
-                    <input type="hidden" name="next" value="{{ request.path|slice:'4:' }}">
+                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
                     <select name="language" class="form-select language-select" onchange="this.form.submit()">
                         {% get_available_languages as LANGUAGES %}
                         {% get_language_info_list for LANGUAGES as languages %}

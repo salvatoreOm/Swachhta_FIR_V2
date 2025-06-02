@@ -3,98 +3,184 @@
 
 {% block title %}{% trans "Dashboard" %}{% endblock %}
 
-{% block content %}
-<div class="row mb-4">
-    <div class="col-md-4">
-        <div class="card bg-primary text-white">
-            <div class="card-body">
-                <h5 class="card-title">{% trans "Total Complaints" %}</h5>
-                <h2 class="mb-0">{{ total_complaints }}</h2>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="card bg-warning text-dark">
-            <div class="card-body">
-                <h5 class="card-title">{% trans "Pending Complaints" %}</h5>
-                <h2 class="mb-0">{{ pending_complaints }}</h2>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="card bg-success text-white">
-            <div class="card-body">
-                <h5 class="card-title">{% trans "Resolved Complaints" %}</h5>
-                <h2 class="mb-0">{{ resolved_complaints }}</h2>
-            </div>
-        </div>
-    </div>
-</div>
+{% block extra_css %}
+<style>
+.worker-input {
+    width: 150px;
+    padding: 4px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+.save-worker {
+    padding: 2px 8px;
+    margin-left: 5px;
+    font-size: 0.8em;
+}
+</style>
+{% endblock %}
 
-<div class="card">
-    <div class="card-header">
-        <h4 class="mb-0">{% trans "Recent Complaints" %}</h4>
+{% block content %}
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>{% trans "Dashboard" %}</h2>
+        <a href="{% url 'station_setup' %}" class="btn btn-primary">
+            {% trans "Setup New Station" %}
+        </a>
     </div>
-    <div class="card-body">
-        <div class="table-responsive">
-            <table class="table table-hover">
-                <thead>
-                    <tr>
-                        <th>{% trans "Complaint ID" %}</th>
-                        <th>{% trans "Station" %}</th>
-                        <th>{% trans "Platform" %}</th>
-                        <th>{% trans "Reporter" %}</th>
-                        <th>{% trans "Status" %}</th>
-                        <th>{% trans "Created" %}</th>
-                        <th>{% trans "Actions" %}</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for complaint in complaints %}
-                    <tr>
-                        <td>{{ complaint.complaint_number }}</td>
-                        <td>{{ complaint.station.name }}</td>
-                        <td>{{ complaint.platform_number }}</td>
-                        <td>{{ complaint.reporter_name }}</td>
-                        <td>
-                            <span class="badge {% if complaint.status == 'PENDING' %}bg-warning{% elif complaint.status == 'IN_PROGRESS' %}bg-info{% elif complaint.status == 'RESOLVED' %}bg-success{% else %}bg-secondary{% endif %}">
-                                {{ complaint.get_status_display }}
-                            </span>
-                        </td>
-                        <td>{{ complaint.created_at|date:"M d, Y H:i" }}</td>
-                        <td>
-                            <form method="post" action="{% url 'update_status' complaint.id %}" class="d-inline">
-                                {% csrf_token %}
-                                <select name="status" class="form-select form-select-sm d-inline-block w-auto me-2">
-                                    {% for status, display in complaint.STATUS_CHOICES %}
-                                    <option value="{{ status }}" {% if status == complaint.status %}selected{% endif %}>
-                                        {{ display }}
-                                    </option>
-                                    {% endfor %}
-                                </select>
-                                <button type="submit" class="btn btn-primary btn-sm">{% trans "Update" %}</button>
-                            </form>
-                        </td>
-                    </tr>
-                    {% empty %}
-                    <tr>
-                        <td colspan="7" class="text-center">{% trans "No complaints found." %}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+
+    {% if user.is_superuser %}
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">{% trans "System Overview" %}</h5>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <p>{% trans "Total Cities" %}: {{ cities.count }}</p>
+                        </div>
+                        <div class="col-md-4">
+                            <p>{% trans "Total Stations" %}: {{ stations.count }}</p>
+                        </div>
+                        <div class="col-md-4">
+                            <p>{% trans "Total Complaints" %}: {{ complaints.count }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
+    {% endif %}
+
+    {% for city in cities %}
+    <div class="card mb-4">
+        <div class="card-header">
+            <h3>{{ city.name }} ({{ city.code }})</h3>
+        </div>
+        <div class="card-body">
+            <div class="row mb-3">
+                <div class="col-md-12">
+                    <h4>{% trans "Stations" %}</h4>
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>{% trans "Station Name" %}</th>
+                                    <th>{% trans "Station Code" %}</th>
+                                    <th>{% trans "Total Platforms" %}</th>
+                                    <th>{% trans "Actions" %}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for station in stations %}
+                                {% if station.city == city %}
+                                <tr>
+                                    <td>{{ station.name }}</td>
+                                    <td>{{ station.station_code }}</td>
+                                    <td>{{ station.total_platforms }}</td>
+                                    <td>
+                                        <a href="{% url 'download_qr_codes' station.id %}" class="btn btn-sm btn-primary">
+                                            {% trans "Download QR Codes" %}
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endif %}
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-12">
+                    <h4>{% trans "Recent Complaints" %}</h4>
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>{% trans "Complaint Number" %}</th>
+                                    <th>{% trans "Station" %}</th>
+                                    <th>{% trans "Platform" %}</th>
+                                    <th>{% trans "Location" %}</th>
+                                    <th>{% trans "Status" %}</th>
+                                    <th>{% trans "Assigned Worker" %}</th>
+                                    <th>{% trans "Created At" %}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for complaint in complaints %}
+                                {% if complaint.station.city == city %}
+                                <tr>
+                                    <td>{{ complaint.complaint_number }}</td>
+                                    <td>{{ complaint.station.name }}</td>
+                                    <td>{{ complaint.platform_location.platform_number }}</td>
+                                    <td>{{ complaint.platform_location.location_type.name }}</td>
+                                    <td>
+                                        <span class="badge {% if complaint.status == 'PENDING' %}bg-warning
+                                                         {% elif complaint.status == 'IN_PROGRESS' %}bg-info
+                                                         {% elif complaint.status == 'RESOLVED' %}bg-success
+                                                         {% else %}bg-secondary{% endif %}">
+                                            {{ complaint.get_status_display }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <form class="worker-form d-flex align-items-center" data-complaint-id="{{ complaint.id }}">
+                                            {% csrf_token %}
+                                            <input type="text" class="worker-input form-control form-control-sm" 
+                                                   value="{{ complaint.assigned_worker|default:'' }}" 
+                                                   placeholder="{% trans 'Assign worker' %}"
+                                                   name="worker_name">
+                                            <button type="submit" class="btn btn-primary btn-sm save-worker">{% trans "Save" %}</button>
+                                        </form>
+                                    </td>
+                                    <td>{{ complaint.created_at|date:"Y-m-d H:i" }}</td>
+                                </tr>
+                                {% endif %}
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-    // Auto-submit status form when selection changes
-    document.querySelectorAll('select[name="status"]').forEach(select => {
-        select.addEventListener('change', e => {
-            e.target.closest('form').submit();
+document.addEventListener('DOMContentLoaded', function() {
+    const workerForms = document.querySelectorAll('.worker-form');
+    
+    workerForms.forEach(form => {
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const complaintId = this.dataset.complaintId;
+            const workerName = this.querySelector('.worker-input').value;
+            
+            try {
+                const response = await fetch(`/assign-worker/${complaintId}/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': this.querySelector('[name=csrfmiddlewaretoken]').value
+                    },
+                    body: `worker_name=${encodeURIComponent(workerName)}`
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.status === 'success') {
+                        alert('{% trans "Worker assigned successfully!" %}');
+                    }
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('{% trans "Error assigning worker." %}');
+            }
         });
     });
+});
 </script>
 {% endblock %} 
