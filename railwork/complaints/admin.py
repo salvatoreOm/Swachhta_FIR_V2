@@ -3,7 +3,7 @@ from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import User
-from .models import City, Station, LocationType, PlatformLocation, Complaint, ComplaintPhoto, OTPVerification
+from .models import City, Station, LocationType, PlatformLocation, Complaint, ComplaintPhoto, OTPVerification, UserProfile
 
 class CityAdmin(admin.ModelAdmin):
     list_display = ('name', 'code', 'admin')
@@ -23,8 +23,8 @@ class CityAdmin(admin.ModelAdmin):
 class PlatformLocationInline(admin.TabularInline):
     model = PlatformLocation
     extra = 0
-    readonly_fields = ('qr_code_preview',)
-    fields = ('platform_number', 'location_type', 'qr_code_preview')
+    readonly_fields = ('qr_code_preview', 'hash_id')
+    fields = ('platform_number', 'location_description', 'hash_id', 'qr_code_preview')
 
     def qr_code_preview(self, obj):
         if obj.qr_code:
@@ -34,7 +34,7 @@ class PlatformLocationInline(admin.TabularInline):
     qr_code_preview.short_description = _('QR Code')
 
 class StationAdmin(admin.ModelAdmin):
-    list_display = ('name', 'station_code', 'city', 'total_platforms')
+    list_display = ('name', 'station_code', 'city', 'total_platforms', 'manager')
     search_fields = ('name', 'station_code')
     list_filter = ('city',)
     inlines = [PlatformLocationInline]
@@ -48,6 +48,9 @@ class StationAdmin(admin.ModelAdmin):
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "city" and not request.user.is_superuser:
             kwargs["queryset"] = City.objects.filter(admin=request.user)
+        elif db_field.name == "manager":
+            # Restrict manager selection to non-staff, non-superuser users
+            kwargs["queryset"] = User.objects.filter(is_superuser=False, is_staff=False)
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 class ComplaintAdmin(admin.ModelAdmin):
@@ -58,7 +61,7 @@ class ComplaintAdmin(admin.ModelAdmin):
 
     def get_platform_info(self, obj):
         if obj.platform_location:
-            return f"Platform {obj.platform_location.platform_number} - {obj.platform_location.location_type.name}"
+            return f"Platform {obj.platform_location.platform_number} - {obj.platform_location.location_description}"
         return "-"
     get_platform_info.short_description = _('Platform Location')
 
@@ -76,9 +79,35 @@ class ComplaintAdmin(admin.ModelAdmin):
                 kwargs["queryset"] = PlatformLocation.objects.filter(station__city__admin=request.user)
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
+class UserProfileInline(admin.StackedInline):
+    model = UserProfile
+    can_delete = False
+    verbose_name_plural = _('Station Manager Profile')
+    fields = ('station', 'can_manage_station')
+
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display = ('user', 'station', 'can_manage_station', 'created_at')
+    list_filter = ('can_manage_station', 'station__city')
+    search_fields = ('user__username', 'user__email', 'station__name')
+    
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if not request.user.is_superuser:
+            return qs.filter(station__city__admin=request.user)
+        return qs
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if not request.user.is_superuser:
+            if db_field.name == "station":
+                kwargs["queryset"] = Station.objects.filter(city__admin=request.user)
+            elif db_field.name == "user":
+                kwargs["queryset"] = User.objects.filter(is_superuser=False, is_staff=False)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
 admin.site.register(City, CityAdmin)
 admin.site.register(Station, StationAdmin)
 admin.site.register(LocationType)
 admin.site.register(Complaint, ComplaintAdmin)
 admin.site.register(ComplaintPhoto)
 admin.site.register(OTPVerification)
+admin.site.register(UserProfile, UserProfileAdmin)

@@ -57,6 +57,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'complaints.middleware.AdminAccessMiddleware',
 ]
 
 ROOT_URLCONF = 'railwork.urls'
@@ -163,5 +164,20 @@ THEME_COLOR = '#375BA4'
 # Fast2SMS Settings
 FAST2SMS_API_KEY = os.getenv('FAST2SMS_API_KEY')
 
-# Login URL
-LOGIN_URL = '/admin/login/'
+# Login URL - changed from admin to user login
+LOGIN_URL = '/login/'
+LOGIN_REDIRECT_URL = '/dashboard/'
+LOGOUT_REDIRECT_URL = '/login/'
+
+# Email Settings for Password Reset
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
+
+# Additional email settings for better compatibility
+EMAIL_USE_SSL = False  # Use TLS instead of SSL for Gmail
+EMAIL_TIMEOUT = 300  # 5 minutes timeout

@@ -20,9 +20,11 @@ from django.conf.urls.i18n import i18n_patterns
 from django.utils.translation import gettext_lazy as _
 from django.conf import settings
 from django.conf.urls.static import static
+from django.shortcuts import redirect
 
 # Non-translatable URLs
 urlpatterns = [
+    path('', lambda request: redirect('user_login')),  # Redirect root to login
     path('i18n/', include('django.conf.urls.i18n')),
 ]
 

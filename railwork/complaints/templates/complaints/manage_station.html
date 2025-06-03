@@ -1,0 +1,337 @@
+{% extends 'complaints/base.html' %}
+{% load i18n %}
+{% load static %}
+
+{% block title %}{% trans "Manage Station" %}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .platform-section {
+        margin-top: 20px;
+        padding: 20px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background-color: #f8f9fa;
+    }
+    .qr-location-item {
+        margin-bottom: 15px;
+        padding: 15px;
+        border: 1px solid #e9ecef;
+        border-radius: 5px;
+        background-color: white;
+        position: relative;
+    }
+    .qr-location-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+    .add-qr-btn {
+        margin-top: 10px;
+    }
+    .remove-qr-btn {
+        color: #dc3545;
+        background: none;
+        border: none;
+        font-size: 1.2em;
+        cursor: pointer;
+    }
+    .remove-qr-btn:hover {
+        color: #c82333;
+    }
+    .existing-qr {
+        border-left: 4px solid #28a745;
+    }
+    .qr-code-preview {
+        max-width: 100px;
+        max-height: 100px;
+        margin: 5px 0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>{% trans "Manage Station" %} - {{ station.name }}</h2>
+        <a href="{% url 'user_dashboard' %}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> {% trans "Back to Dashboard" %}
+        </a>
+    </div>
+    
+    <form id="manageStationForm">
+        <!-- Station Basic Info -->
+        <div class="card mb-4">
+            <div class="card-header" style="background-color: #375BA4; color: white;">
+                <h5 class="mb-0">{% trans "Station Information" %}</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="stationName" class="form-label">{% trans "Station Name" %}</label>
+                            <input type="text" class="form-control" id="stationName" value="{{ station.name }}" required>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="stationCode" class="form-label">{% trans "Station Code" %}</label>
+                            <input type="text" class="form-control" id="stationCode" value="{{ station.station_code }}" readonly>
+                            <small class="text-muted">{% trans "Station code cannot be changed" %}</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="totalPlatforms" class="form-label">{% trans "Total Platforms" %}</label>
+                            <input type="number" class="form-control" id="totalPlatforms" min="1" value="{{ station.total_platforms }}" required>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="cityName" class="form-label">{% trans "City" %}</label>
+                            <input type="text" class="form-control" id="cityName" value="{{ station.city.name }}" readonly>
+                            <small class="text-muted">{% trans "City cannot be changed" %}</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Platform Management -->
+        <div class="card mb-4">
+            <div class="card-header" style="background-color: #375BA4; color: white;">
+                <h5 class="mb-0">{% trans "Platform QR Code Management" %}</h5>
+            </div>
+            <div class="card-body">
+                <div id="platformsContainer">
+                    <!-- Platforms will be loaded here -->
+                </div>
+            </div>
+        </div>
+
+        <div class="d-grid gap-2 mb-4">
+            <button type="submit" class="btn btn-primary btn-lg">
+                <i class="fas fa-save"></i> {% trans "Save Changes" %}
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const platformsContainer = document.getElementById('platformsContainer');
+    const totalPlatformsInput = document.getElementById('totalPlatforms');
+    let qrCounter = 0;
+    
+    // Existing platform locations data
+    const existingLocations = {{ existing_locations|safe }};
+
+    function createQRLocationItem(platformNumber, existingData = null) {
+        qrCounter++;
+        const qrId = existingData ? `existing_${existingData.id}` : `new_${platformNumber}_${qrCounter}`;
+        
+        const qrItem = document.createElement('div');
+        qrItem.className = existingData ? 'qr-location-item existing-qr' : 'qr-location-item';
+        qrItem.dataset.qrId = qrId;
+        qrItem.dataset.locationId = existingData ? existingData.id : '';
+        
+        qrItem.innerHTML = `
+            <div class="qr-location-header">
+                <strong>
+                    ${existingData ? 
+                        \`QR Code #${existingData.hash_id} (Existing)\` : 
+                        \`New QR Code #${qrCounter}\`
+                    }
+                </strong>
+                <button type="button" class="remove-qr-btn" onclick="removeQRLocation(this)" 
+                        ${existingData && existingData.has_complaints ? 'disabled title="Cannot delete - has complaints"' : ''}>
+                    <i class="fas fa-trash"></i> Remove
+                </button>
+            </div>
+            <div class="row">
+                <div class="col-md-8">
+                    <div class="mb-3">
+                        <label for="${qrId}_location" class="form-label">Location Description</label>
+                        <input type="text" class="form-control location-input" 
+                               id="${qrId}_location" 
+                               name="platform_${platformNumber}_locations"
+                               value="${existingData ? existingData.location_description : ''}"
+                               placeholder="e.g., Near Ticket Counter, Platform Entry, Waiting Area"
+                               required>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    ${existingData && existingData.qr_code_url ? 
+                        \`<div class="text-center">
+                            <label class="form-label">Current QR Code</label><br>
+                            <img src="${existingData.qr_code_url}" class="qr-code-preview" alt="QR Code">
+                        </div>\` : ''
+                    }
+                </div>
+            </div>
+            ${existingData ? 
+                \`<input type="hidden" name="existing_location_${existingData.id}" value="true">\` : 
+                ''
+            }
+        `;
+        return qrItem;
+    }
+
+    function createPlatformSection(platformNumber) {
+        const section = document.createElement('div');
+        section.className = 'platform-section';
+        section.dataset.platform = platformNumber;
+        section.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h4>Platform ${platformNumber}</h4>
+                <small class="text-muted">Manage QR codes for this platform</small>
+            </div>
+            <div class="qr-locations-container">
+                <!-- QR locations will be added here -->
+            </div>
+            <button type="button" class="btn btn-outline-primary add-qr-btn" onclick="addQRLocation(${platformNumber})">
+                <i class="fas fa-plus"></i> Add QR Code Location
+            </button>
+        `;
+        
+        const qrContainer = section.querySelector('.qr-locations-container');
+        
+        // Add existing locations for this platform
+        const existingForPlatform = existingLocations.filter(loc => loc.platform_number === platformNumber);
+        if (existingForPlatform.length > 0) {
+            existingForPlatform.forEach(location => {
+                qrContainer.appendChild(createQRLocationItem(platformNumber, location));
+            });
+        } else {
+            // Add one empty location if no existing ones
+            qrContainer.appendChild(createQRLocationItem(platformNumber));
+        }
+        
+        return section;
+    }
+
+    function updatePlatformSections() {
+        platformsContainer.innerHTML = '';
+        qrCounter = 0;
+        const totalPlatforms = parseInt(totalPlatformsInput.value) || 0;
+        
+        for (let i = 1; i <= totalPlatforms; i++) {
+            platformsContainer.appendChild(createPlatformSection(i));
+        }
+    }
+
+    // Global functions for add/remove QR locations
+    window.addQRLocation = function(platformNumber) {
+        const platformSection = document.querySelector(`[data-platform="${platformNumber}"]`);
+        const qrContainer = platformSection.querySelector('.qr-locations-container');
+        qrContainer.appendChild(createQRLocationItem(platformNumber));
+    };
+
+    window.removeQRLocation = function(button) {
+        if (button.disabled) return;
+        
+        const qrItem = button.closest('.qr-location-item');
+        const qrContainer = qrItem.parentNode;
+        
+        // Prevent removing the last QR location
+        if (qrContainer.children.length > 1) {
+            qrItem.remove();
+        } else {
+            alert('Each platform must have at least one QR code location.');
+        }
+    };
+
+    totalPlatformsInput.addEventListener('change', updatePlatformSections);
+    updatePlatformSections();
+
+    document.getElementById('manageStationForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const platformLocations = [];
+        const totalPlatforms = parseInt(totalPlatformsInput.value);
+        
+        // Collect existing and new locations
+        const existingUpdates = [];
+        const deletedLocations = [];
+        
+        for (let i = 1; i <= totalPlatforms; i++) {
+            const platformSection = document.querySelector(`[data-platform="${i}"]`);
+            if (!platformSection) continue;
+            
+            const qrItems = platformSection.querySelectorAll('.qr-location-item');
+            const newLocations = [];
+            
+            qrItems.forEach(item => {
+                const locationInput = item.querySelector('.location-input');
+                const locationId = item.dataset.locationId;
+                
+                if (locationId) {
+                    // Existing location update
+                    existingUpdates.push({
+                        id: parseInt(locationId),
+                        location_description: locationInput.value.trim()
+                    });
+                } else {
+                    // New location
+                    const description = locationInput.value.trim();
+                    if (description) {
+                        newLocations.push(description);
+                    }
+                }
+            });
+            
+            if (newLocations.length > 0) {
+                platformLocations.push({
+                    platform_number: i,
+                    locations: newLocations
+                });
+            }
+        }
+        
+        // Find deleted locations
+        existingLocations.forEach(existing => {
+            const stillExists = document.querySelector(`[data-location-id="${existing.id}"]`);
+            if (!stillExists && !existing.has_complaints) {
+                deletedLocations.push(existing.id);
+            }
+        });
+
+        const data = {
+            station_name: document.getElementById('stationName').value,
+            total_platforms: totalPlatforms,
+            new_locations: platformLocations,
+            updated_locations: existingUpdates,
+            deleted_locations: deletedLocations
+        };
+
+        try {
+            const response = await fetch('{% url "manage_station" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: JSON.stringify(data)
+            });
+
+            const result = await response.json();
+            
+            if (response.ok) {
+                alert(result.message);
+                window.location.href = '{% url "user_dashboard" %}';
+            } else {
+                alert(result.message);
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('An error occurred while saving changes.');
+        }
+    });
+});
+</script>
+{% endblock %} 

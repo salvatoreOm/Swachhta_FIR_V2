@@ -5,13 +5,22 @@ from django.conf import settings
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.forms import PasswordResetForm
+from django.contrib.auth.views import PasswordResetView, PasswordResetDoneView, PasswordResetConfirmView, PasswordResetCompleteView
 from django.utils.translation import gettext as _
+from django.core.mail import send_mail
+from django.template.loader import render_to_string
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.utils.encoding import force_bytes, force_str
+from django.contrib.auth.tokens import default_token_generator
+from django.contrib.auth.models import User
 import qrcode
 import random
 import string
 import requests
 from io import BytesIO
-from .models import Station, Complaint, OTPVerification, ComplaintPhoto, City, PlatformLocation, LocationType
+from .models import Station, Complaint, OTPVerification, ComplaintPhoto, City, PlatformLocation, LocationType, UserProfile
 from .forms import ComplaintForm, OTPVerificationForm
 from django.core.exceptions import PermissionDenied
 import json
@@ -19,6 +28,99 @@ import os
 from zipfile import ZipFile
 from django.core.files.base import ContentFile
 from PIL import Image
+
+# Authentication Views
+def user_login(request):
+    """Custom login view for station managers"""
+    if request.user.is_authenticated:
+        return redirect('user_dashboard')
+    
+    if request.method == 'POST':
+        email = request.POST.get('email')
+        password = request.POST.get('password')
+        
+        try:
+            user = User.objects.get(email=email)
+            user = authenticate(request, username=user.username, password=password)
+            if user is not None:
+                login(request, user)
+                next_url = request.GET.get('next', 'user_dashboard')
+                return redirect(next_url)
+            else:
+                messages.error(request, _('Invalid email or password.'))
+        except User.DoesNotExist:
+            messages.error(request, _('Invalid email or password.'))
+    
+    return render(request, 'complaints/auth/login.html')
+
+@login_required
+def user_logout(request):
+    """Custom logout view"""
+    logout(request)
+    messages.success(request, _('You have been successfully logged out.'))
+    return redirect('user_login')
+
+def user_password_reset(request):
+    """Custom password reset view"""
+    if request.method == 'POST':
+        form = PasswordResetForm(request.POST)
+        if form.is_valid():
+            form.save(
+                request=request,
+                use_https=request.is_secure(),
+                email_template_name='complaints/auth/password_reset_email.txt',
+                subject_template_name='complaints/auth/password_reset_subject.txt',
+            )
+            messages.success(request, _('Password reset email has been sent to your email address.'))
+            return redirect('password_reset_done')
+    else:
+        form = PasswordResetForm()
+    
+    return render(request, 'complaints/auth/password_reset.html', {'form': form})
+
+def password_reset_done(request):
+    """Password reset done view"""
+    return render(request, 'complaints/auth/password_reset_done.html')
+
+@login_required
+def user_dashboard(request):
+    """Custom dashboard for station managers with restricted access"""
+    # Prevent access to superusers and staff - redirect them to admin
+    if request.user.is_superuser or request.user.is_staff:
+        return redirect('/admin/')
+    
+    # Get user's station
+    try:
+        user_profile = UserProfile.objects.get(user=request.user)
+        user_station = user_profile.station
+    except UserProfile.DoesNotExist:
+        try:
+            user_station = request.user.managed_station
+        except Station.DoesNotExist:
+            user_station = None
+    
+    if not user_station:
+        messages.error(request, _('No station assigned to your account. Please contact administrator.'))
+        return render(request, 'complaints/auth/no_station.html')
+    
+    # Get complaints only for user's station
+    complaints = Complaint.objects.filter(station=user_station).order_by('-created_at')
+    
+    # Get statistics
+    total_complaints = complaints.count()
+    pending_complaints = complaints.filter(status='PENDING').count()
+    in_progress_complaints = complaints.filter(status='IN_PROGRESS').count()
+    resolved_complaints = complaints.filter(status='RESOLVED').count()
+    
+    context = {
+        'complaints': complaints,
+        'user_station': user_station,
+        'total_complaints': total_complaints,
+        'pending_complaints': pending_complaints,
+        'in_progress_complaints': in_progress_complaints,
+        'resolved_complaints': resolved_complaints,
+    }
+    return render(request, 'complaints/user_dashboard.html', context)
 
 def generate_otp():
     return ''.join(random.choices(string.digits, k=6))
@@ -96,14 +198,25 @@ def submit_complaint(request):
             station = get_object_or_404(Station, id=request.GET['station'])
             initial['station'] = station
             
-            if 'platform' in request.GET and 'location' in request.GET:
-                platform_location = get_object_or_404(
-                    PlatformLocation,
-                    station=station,
-                    platform_number=request.GET['platform'],
-                    location_type_id=request.GET['location']
-                )
-                initial['platform_location'] = platform_location
+            # Updated to handle new QR structure where 'location' refers to platform_location ID
+            if 'location' in request.GET:
+                try:
+                    platform_location = get_object_or_404(PlatformLocation, id=request.GET['location'])
+                    initial['platform_location'] = platform_location
+                except:
+                    # Fallback for old QR codes that might still use platform+location_type format
+                    if 'platform' in request.GET:
+                        try:
+                            # Try to find by platform number and location_type (backward compatibility)
+                            platform_location = PlatformLocation.objects.filter(
+                                station=station,
+                                platform_number=request.GET['platform'],
+                                location_type_id=request.GET['location']
+                            ).first()
+                            if platform_location:
+                                initial['platform_location'] = platform_location
+                        except:
+                            pass
         
         form = ComplaintForm(initial=initial)
     
@@ -158,6 +271,15 @@ def dashboard(request):
 
 @login_required
 def station_setup(request):
+    # Prevent regular users from creating stations if they already have one
+    if not request.user.is_superuser and not request.user.is_staff:
+        try:
+            existing_station = request.user.managed_station
+            messages.error(request, _('You already have a station assigned. You cannot create another station.'))
+            return redirect('user_dashboard')
+        except Station.DoesNotExist:
+            pass  # User doesn't have a station yet, can create one
+    
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
@@ -168,10 +290,21 @@ def station_setup(request):
             total_platforms = int(data.get('total_platforms', 1))
             platform_locations = data.get('platform_locations', [])
 
+            # For regular users, limit to one station
+            if not request.user.is_superuser and not request.user.is_staff:
+                try:
+                    existing_station = request.user.managed_station
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': _('You already have a station assigned. You cannot create another station.')
+                    }, status=403)
+                except Station.DoesNotExist:
+                    pass
+
             # Create or get city
             city, created = City.objects.get_or_create(
                 code=city_code,
-                defaults={'name': city_name, 'admin': request.user}
+                defaults={'name': city_name, 'admin': request.user if request.user.is_superuser else None}
             )
 
             if not created and city.admin != request.user and not request.user.is_superuser:
@@ -189,31 +322,38 @@ def station_setup(request):
                     'message': _('A station with this code already exists in this city. Please use a different station code.')
                 }, status=400)
 
-            # Create station
+            # Create station and assign manager
             station = Station.objects.create(
                 name=station_name,
                 station_code=station_code,
                 city=city,
-                total_platforms=total_platforms
+                total_platforms=total_platforms,
+                manager=request.user if not request.user.is_superuser else None
             )
 
-            # Create platform locations
+            # Create or update user profile
+            if not request.user.is_superuser and not request.user.is_staff:
+                user_profile, created = UserProfile.objects.get_or_create(user=request.user)
+                user_profile.station = station
+                user_profile.save()
+
+            # Create platform locations with custom descriptions
             created_locations = []
             for platform_data in platform_locations:
                 platform_number = platform_data['platform_number']
-                location_types = platform_data['location_types']
+                locations = platform_data['locations']  # List of custom location descriptions
                 
-                for location_type_id in location_types:
-                    location_type = LocationType.objects.get(id=location_type_id)
+                for location_description in locations:
                     platform_location = PlatformLocation.objects.create(
                         station=station,
                         platform_number=platform_number,
-                        location_type=location_type
+                        location_description=location_description
                     )
                     created_locations.append({
                         'id': platform_location.id,
                         'platform_number': platform_number,
-                        'location_type_name': location_type.name,
+                        'location_description': location_description,
+                        'hash_id': platform_location.hash_id,
                         'qr_code_url': platform_location.qr_code.url if platform_location.qr_code else None
                     })
 
@@ -229,19 +369,23 @@ def station_setup(request):
                 'message': str(e)
             }, status=400)
     
-    # GET request - show setup form
-    location_types = LocationType.objects.all()
-    context = {
-        'location_types': location_types
-    }
+    # GET request - show setup form (no need for location_types anymore)
+    context = {}
     return render(request, 'complaints/station_setup.html', context)
 
 @login_required
 def download_qr_codes(request, station_id):
     station = get_object_or_404(Station, id=station_id)
     
-    # Check permissions
-    if not request.user.is_superuser and station.city.admin != request.user:
+    # Check permissions - superuser/staff can access all, regular users only their station
+    if not request.user.is_superuser and not request.user.is_staff:
+        try:
+            user_station = request.user.managed_station
+            if user_station != station:
+                raise PermissionDenied(_("You don't have permission to download QR codes for this station."))
+        except Station.DoesNotExist:
+            raise PermissionDenied(_("You don't have a station assigned."))
+    elif not request.user.is_superuser and station.city.admin != request.user:
         raise PermissionDenied(_("You don't have permission to download QR codes for this station."))
     
     # Create a ZIP file
@@ -249,7 +393,9 @@ def download_qr_codes(request, station_id):
     with ZipFile(zip_buffer, 'w') as zip_file:
         for platform_location in station.platform_locations.all():
             if platform_location.qr_code:
-                qr_name = f"platform_{platform_location.platform_number}_{platform_location.location_type.name}.png"
+                # Use location_description instead of location_type.name
+                location_name = platform_location.location_description.replace(' ', '_').replace(',', '').replace('/', '_')
+                qr_name = f"platform_{platform_location.platform_number}_{location_name}.png"
                 zip_file.writestr(qr_name, platform_location.qr_code.read())
     
     # Return the ZIP file
@@ -261,6 +407,18 @@ def download_qr_codes(request, station_id):
 @require_http_methods(['POST'])
 def update_complaint_status(request, complaint_id):
     complaint = get_object_or_404(Complaint, id=complaint_id)
+    
+    # Check permissions - users can only update complaints for their station
+    if not request.user.is_superuser and not request.user.is_staff:
+        try:
+            user_station = request.user.managed_station
+            if complaint.station != user_station:
+                raise PermissionDenied(_("You don't have permission to update this complaint."))
+        except Station.DoesNotExist:
+            raise PermissionDenied(_("You don't have a station assigned."))
+    elif not request.user.is_superuser and complaint.station.city.admin != request.user:
+        raise PermissionDenied(_("You don't have permission to update this complaint."))
+    
     new_status = request.POST.get('status')
     
     if new_status in dict(Complaint.STATUS_CHOICES):
@@ -270,22 +428,142 @@ def update_complaint_status(request, complaint_id):
     else:
         messages.error(request, _('Invalid status'))
     
-    return redirect('dashboard')
+    # Redirect based on user type
+    if request.user.is_superuser or request.user.is_staff:
+        return redirect('dashboard')
+    else:
+        return redirect('user_dashboard')
 
 @login_required
 @require_http_methods(['POST'])
 def assign_worker(request, complaint_id):
     complaint = get_object_or_404(Complaint, id=complaint_id)
     
-    # Check if user has permission to modify this complaint
-    if not request.user.is_superuser and complaint.station.city.admin != request.user:
+    # Check permissions - users can only assign workers to complaints for their station
+    if not request.user.is_superuser and not request.user.is_staff:
+        try:
+            user_station = request.user.managed_station
+            if complaint.station != user_station:
+                raise PermissionDenied(_("You don't have permission to assign workers to this complaint."))
+        except Station.DoesNotExist:
+            raise PermissionDenied(_("You don't have a station assigned."))
+    elif not request.user.is_superuser and complaint.station.city.admin != request.user:
         raise PermissionDenied(_("You don't have permission to assign workers to this complaint."))
     
     worker_name = request.POST.get('worker_name')
-    complaint.assigned_worker = worker_name
-    complaint.save()
     
-    return JsonResponse({
-        'status': 'success',
-        'message': _('Worker assigned successfully')
-    })
+    if worker_name:
+        complaint.assigned_worker = worker_name
+        complaint.save()
+        messages.success(request, _('Worker assigned successfully'))
+    else:
+        messages.error(request, _('Please provide worker name'))
+    
+    # Redirect based on user type
+    if request.user.is_superuser or request.user.is_staff:
+        return redirect('dashboard')
+    else:
+        return redirect('user_dashboard')
+
+@login_required
+def manage_station(request):
+    """Allow station managers to edit their station details and manage QR codes"""
+    # Only allow regular users to manage their station
+    if request.user.is_superuser or request.user.is_staff:
+        messages.error(request, _('Superusers and staff should use the admin panel for station management.'))
+        return redirect('dashboard')
+    
+    # Get user's station
+    try:
+        user_profile = UserProfile.objects.get(user=request.user)
+        station = user_profile.station
+    except UserProfile.DoesNotExist:
+        try:
+            station = request.user.managed_station
+        except Station.DoesNotExist:
+            station = None
+    
+    if not station:
+        messages.error(request, _('No station assigned to your account.'))
+        return redirect('user_dashboard')
+    
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            station_name = data.get('station_name')
+            total_platforms = int(data.get('total_platforms', 1))
+            new_locations = data.get('new_locations', [])
+            updated_locations = data.get('updated_locations', [])
+            deleted_locations = data.get('deleted_locations', [])
+            
+            # Update station details
+            station.name = station_name
+            station.total_platforms = total_platforms
+            station.save()
+            
+            # Update existing locations
+            for update in updated_locations:
+                try:
+                    location = PlatformLocation.objects.get(id=update['id'], station=station)
+                    location.location_description = update['location_description']
+                    location.save()
+                except PlatformLocation.DoesNotExist:
+                    continue
+            
+            # Delete locations (only if they have no complaints)
+            for location_id in deleted_locations:
+                try:
+                    location = PlatformLocation.objects.get(id=location_id, station=station)
+                    # Check if location has complaints
+                    if not location.complaint_set.exists():
+                        location.delete()
+                except PlatformLocation.DoesNotExist:
+                    continue
+            
+            # Create new locations
+            created_count = 0
+            for platform_data in new_locations:
+                platform_number = platform_data['platform_number']
+                locations = platform_data['locations']
+                
+                for location_description in locations:
+                    PlatformLocation.objects.create(
+                        station=station,
+                        platform_number=platform_number,
+                        location_description=location_description
+                    )
+                    created_count += 1
+            
+            return JsonResponse({
+                'status': 'success',
+                'message': _('Station updated successfully. {} new QR codes created.').format(created_count)
+            })
+            
+        except Exception as e:
+            return JsonResponse({
+                'status': 'error',
+                'message': str(e)
+            }, status=400)
+    
+    # GET request - show manage form
+    # Get existing platform locations
+    platform_locations = station.platform_locations.all().order_by('platform_number', 'hash_id')
+    
+    # Prepare location data for JavaScript
+    existing_locations = []
+    for location in platform_locations:
+        has_complaints = location.complaint_set.exists()
+        existing_locations.append({
+            'id': location.id,
+            'platform_number': location.platform_number,
+            'location_description': location.location_description,
+            'hash_id': location.hash_id,
+            'qr_code_url': location.qr_code.url if location.qr_code else None,
+            'has_complaints': has_complaints
+        })
+    
+    context = {
+        'station': station,
+        'existing_locations': json.dumps(existing_locations)
+    }
+    return render(request, 'complaints/manage_station.html', context)

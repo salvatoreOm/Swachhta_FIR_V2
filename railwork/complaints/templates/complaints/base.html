@@ -7,6 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}{% endblock %} - {% trans "Swachhta FIR" %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         :root {
             --primary-color: #375BA4;
@@ -43,41 +44,61 @@
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark mb-4">
         <div class="container">
-            <a class="navbar-brand" href="{% url 'dashboard' %}">{% trans "Swachhta FIR" %}</a>
+            <a class="navbar-brand" href="{% if user.is_authenticated %}{% if user.is_superuser or user.is_staff %}{% url 'dashboard' %}{% else %}{% url 'user_dashboard' %}{% endif %}{% else %}{% url 'user_login' %}{% endif %}">{% trans "Swachhta FIR" %}</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'dashboard' %}">{% trans "Dashboard" %}</a>
-                    </li>
                     {% if user.is_authenticated %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'station_setup' %}">{% trans "Station Setup" %}</a>
-                    </li>
+                        {% if user.is_superuser or user.is_staff %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'dashboard' %}">{% trans "Admin Dashboard" %}</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'station_setup' %}">{% trans "Station Setup" %}</a>
+                            </li>
+                        {% else %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'user_dashboard' %}">{% trans "Dashboard" %}</a>
+                            </li>
+                            {% if user.managed_station %}
+                            {% else %}
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{% url 'station_setup' %}">{% trans "Setup Station" %}</a>
+                                </li>
+                            {% endif %}
+                        {% endif %}
                     {% endif %}
-                    {% if request.GET.station and request.GET.platform %}
+                    {% if request.GET.station and request.GET.platform and not user.is_authenticated %}
                     <li class="nav-item">
                         <a class="nav-link" href="{% url 'submit_complaint' %}?station={{ request.GET.station }}&platform={{ request.GET.platform }}">{% trans "Submit Complaint" %}</a>
                     </li>
                     {% endif %}
                 </ul>
-                <form action="{% url 'set_language' %}" method="post" class="d-flex">
-                    {% csrf_token %}
-                    {% get_current_language as CURRENT_LANGUAGE %}
-                    {% get_current_language_bidi as LANGUAGE_BIDI %}
-                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                    <select name="language" class="form-select language-select" onchange="this.form.submit()">
-                        {% get_available_languages as LANGUAGES %}
-                        {% get_language_info_list for LANGUAGES as languages %}
-                        {% for language in languages %}
-                            <option value="{{ language.code }}" {% if language.code == CURRENT_LANGUAGE %}selected{% endif %}>
-                                {% if language.code == 'en' %}English{% else %}हिंदी{% endif %}
-                            </option>
-                        {% endfor %}
-                    </select>
-                </form>
+                <div class="d-flex align-items-center">
+                    {% if user.is_authenticated %}
+                        <span class="text-white me-3">{% trans "Welcome" %}, {{ user.first_name|default:user.username }}!</span>
+                        <a href="{% if user.is_superuser or user.is_staff %}{% url 'admin:logout' %}{% else %}{% url 'user_logout' %}{% endif %}" class="btn btn-outline-light btn-sm me-3">
+                            {% trans "Logout" %}
+                        </a>
+                    {% endif %}
+                    <form action="{% url 'set_language' %}" method="post" class="d-flex">
+                        {% csrf_token %}
+                        {% get_current_language as CURRENT_LANGUAGE %}
+                        {% get_current_language_bidi as LANGUAGE_BIDI %}
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <select name="language" class="form-select language-select" onchange="this.form.submit()">
+                            {% get_available_languages as LANGUAGES %}
+                            {% get_language_info_list for LANGUAGES as languages %}
+                            {% for language in languages %}
+                                <option value="{{ language.code }}" {% if language.code == CURRENT_LANGUAGE %}selected{% endif %}>
+                                    {% if language.code == 'en' %}English{% else %}हिंदी{% endif %}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </form>
+                </div>
             </div>
         </div>
     </nav>

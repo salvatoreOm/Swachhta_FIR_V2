@@ -6,14 +6,38 @@
 
 {% block extra_css %}
 <style>
-    .platform-locations {
+    .platform-section {
         margin-top: 20px;
-        padding: 15px;
+        padding: 20px;
         border: 1px solid #ddd;
-        border-radius: 5px;
+        border-radius: 8px;
+        background-color: #f8f9fa;
     }
-    .location-type-checkbox {
-        margin-right: 15px;
+    .qr-location-item {
+        margin-bottom: 15px;
+        padding: 15px;
+        border: 1px solid #e9ecef;
+        border-radius: 5px;
+        background-color: white;
+    }
+    .qr-location-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+    .add-qr-btn {
+        margin-top: 10px;
+    }
+    .remove-qr-btn {
+        color: #dc3545;
+        background: none;
+        border: none;
+        font-size: 1.2em;
+        cursor: pointer;
+    }
+    .remove-qr-btn:hover {
+        color: #c82333;
     }
     .qr-preview {
         max-width: 200px;
@@ -116,42 +140,86 @@
 document.addEventListener('DOMContentLoaded', function() {
     const platformsContainer = document.getElementById('platformsContainer');
     const totalPlatformsInput = document.getElementById('totalPlatforms');
-    const locationTypes = [
-        {% for type in location_types %}
-        { id: {{ type.id }}, name: "{{ type.name }}" },
-        {% endfor %}
-    ];
+    let qrCounter = 0;
+
+    function createQRLocationItem(platformNumber) {
+        qrCounter++;
+        const qrId = `qr_${platformNumber}_${qrCounter}`;
+        
+        const qrItem = document.createElement('div');
+        qrItem.className = 'qr-location-item';
+        qrItem.dataset.qrId = qrId;
+        qrItem.innerHTML = `
+            <div class="qr-location-header">
+                <strong>{% trans "QR Code" %} #${qrCounter}</strong>
+                <button type="button" class="remove-qr-btn" onclick="removeQRLocation(this)">
+                    <i class="fas fa-trash"></i> {% trans "Remove" %}
+                </button>
+            </div>
+            <div class="mb-3">
+                <label for="${qrId}_location" class="form-label">{% trans "Location Description" %}</label>
+                <input type="text" class="form-control location-input" 
+                       id="${qrId}_location" 
+                       name="platform_${platformNumber}_locations"
+                       placeholder="{% trans 'e.g., Near Ticket Counter, Platform Entry, Waiting Area' %}"
+                       required>
+            </div>
+        `;
+        return qrItem;
+    }
 
     function createPlatformSection(platformNumber) {
         const section = document.createElement('div');
-        section.className = 'platform-locations mb-3';
+        section.className = 'platform-section';
+        section.dataset.platform = platformNumber;
         section.innerHTML = `
-            <h4>{% trans "Platform" %} ${platformNumber}</h4>
-            <div class="location-types">
-                ${locationTypes.map(type => `
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" 
-                               id="platform${platformNumber}Type${type.id}" 
-                               value="${type.id}" 
-                               name="platform${platformNumber}Locations">
-                        <label class="form-check-label" for="platform${platformNumber}Type${type.id}">
-                            ${type.name}
-                        </label>
-                    </div>
-                `).join('')}
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h4>{% trans "Platform" %} ${platformNumber}</h4>
+                <small class="text-muted">{% trans "Add QR codes for different locations on this platform" %}</small>
             </div>
+            <div class="qr-locations-container">
+                <!-- QR locations will be added here -->
+            </div>
+            <button type="button" class="btn btn-outline-primary add-qr-btn" onclick="addQRLocation(${platformNumber})">
+                <i class="fas fa-plus"></i> {% trans "Add QR Code Location" %}
+            </button>
         `;
+        
+        // Add initial QR location
+        const qrContainer = section.querySelector('.qr-locations-container');
+        qrContainer.appendChild(createQRLocationItem(platformNumber));
+        
         return section;
     }
 
     function updatePlatformSections() {
         platformsContainer.innerHTML = '';
+        qrCounter = 0;
         const totalPlatforms = parseInt(totalPlatformsInput.value) || 0;
         
         for (let i = 1; i <= totalPlatforms; i++) {
             platformsContainer.appendChild(createPlatformSection(i));
         }
     }
+
+    // Global functions for add/remove QR locations
+    window.addQRLocation = function(platformNumber) {
+        const platformSection = document.querySelector(`[data-platform="${platformNumber}"]`);
+        const qrContainer = platformSection.querySelector('.qr-locations-container');
+        qrContainer.appendChild(createQRLocationItem(platformNumber));
+    };
+
+    window.removeQRLocation = function(button) {
+        const qrItem = button.closest('.qr-location-item');
+        const qrContainer = qrItem.parentNode;
+        
+        // Prevent removing the last QR location
+        if (qrContainer.children.length > 1) {
+            qrItem.remove();
+        } else {
+            alert('{% trans "Each platform must have at least one QR code location." %}');
+        }
+    };
 
     totalPlatformsInput.addEventListener('change', updatePlatformSections);
     updatePlatformSections();
@@ -163,14 +231,17 @@ document.addEventListener('DOMContentLoaded', function() {
         const totalPlatforms = parseInt(totalPlatformsInput.value);
         
         for (let i = 1; i <= totalPlatforms; i++) {
-            const selectedLocations = Array.from(document.getElementsByName(`platform${i}Locations`))
-                .filter(cb => cb.checked)
-                .map(cb => parseInt(cb.value));
+            const platformSection = document.querySelector(`[data-platform="${i}"]`);
+            const locationInputs = platformSection.querySelectorAll('input[name="platform_' + i + '_locations"]');
             
-            if (selectedLocations.length > 0) {
+            const locations = Array.from(locationInputs)
+                .map(input => input.value.trim())
+                .filter(value => value.length > 0);
+            
+            if (locations.length > 0) {
                 platformLocations.push({
                     platform_number: i,
-                    location_types: selectedLocations
+                    locations: locations
                 });
             }
         }
@@ -219,14 +290,17 @@ document.addEventListener('DOMContentLoaded', function() {
                         ${result.locations.map(location => `
                             <div class="qr-code-item">
                                 <div class="qr-code-title">
-                                    {% trans "Platform" %} ${data.station_name} - ${location.platform_number}
+                                    ${data.station_name} - {% trans "Platform" %} ${location.platform_number}
                                 </div>
                                 <div class="qr-code-location">
-                                    ${location.location_type_name}
+                                    ${location.location_description}
+                                </div>
+                                <div class="text-muted small mb-2">
+                                    {% trans "Hash ID" %}: ${location.hash_id} | {% trans "Location ID" %}: ${location.id}
                                 </div>
                                 <img src="${location.qr_code_url}" class="qr-preview" alt="QR Code">
                                 <div class="print-instructions">
-                                    {% trans "Place this QR code at" %} ${location.location_type_name} {% trans "on Platform" %} ${location.platform_number}
+                                    {% trans "Place this QR code at" %}: ${location.location_description}
                                 </div>
                             </div>
                         `).join('')}

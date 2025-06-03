@@ -9,6 +9,20 @@ from django.core.files import File
 from PIL import Image
 import os
 
+class UserProfile(models.Model):
+    """Extended user profile to manage station-specific permissions"""
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    station = models.OneToOneField('Station', on_delete=models.CASCADE, null=True, blank=True)
+    can_manage_station = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.station.name if self.station else 'No Station'}"
+    
+    class Meta:
+        verbose_name = _('User Profile')
+        verbose_name_plural = _('User Profiles')
+
 class City(models.Model):
     name = models.CharField(_('City Name'), max_length=100)
     code = models.CharField(_('City Code'), max_length=10, unique=True)
@@ -21,6 +35,7 @@ class City(models.Model):
         verbose_name = _('City')
         verbose_name_plural = _('Cities')
 
+# Keep LocationType for backward compatibility but mark as deprecated
 class LocationType(models.Model):
     name = models.CharField(_('Location Type'), max_length=100)
     
@@ -28,14 +43,16 @@ class LocationType(models.Model):
         return self.name
 
     class Meta:
-        verbose_name = _('Location Type')
-        verbose_name_plural = _('Location Types')
+        verbose_name = _('Location Type (Deprecated)')
+        verbose_name_plural = _('Location Types (Deprecated)')
 
 class Station(models.Model):
     name = models.CharField(_('Station Name'), max_length=100)
     station_code = models.CharField(_('Station Code'), max_length=10)
     city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='stations', null=True, blank=True)
     total_platforms = models.IntegerField(_('Total Platforms'), validators=[MinValueValidator(1)], default=1)
+    manager = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='managed_station')
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     
     def __str__(self):
         return f"{self.name} ({self.station_code})"
@@ -48,8 +65,12 @@ class Station(models.Model):
 class PlatformLocation(models.Model):
     station = models.ForeignKey(Station, on_delete=models.CASCADE, related_name='platform_locations')
     platform_number = models.IntegerField(_('Platform Number'), validators=[MinValueValidator(1)])
-    location_type = models.ForeignKey(LocationType, on_delete=models.CASCADE)
+    # Replace location_type with custom location description
+    location_type = models.ForeignKey(LocationType, on_delete=models.CASCADE, null=True, blank=True)  # Keep for backward compatibility
+    location_description = models.CharField(_('Location Description'), max_length=200, default='General Area', help_text=_('Custom description of the location (e.g., "Near Ticket Counter", "Platform Entry", "Waiting Area")'))
+    hash_id = models.IntegerField(_('Hash ID'), default=1, help_text=_('Consecutive ID for this platform location'))
     qr_code = models.ImageField(upload_to='qr_codes/', blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     
     def generate_qr_code(self):
         qr = qrcode.QRCode(
@@ -59,8 +80,12 @@ class PlatformLocation(models.Model):
             border=4,
         )
         
+        # Fix: Use HTTP instead of HTTPS for development, and ensure we have an ID
+        protocol = 'http'  # Changed from https to http for development
+        domain = os.getenv('DOMAIN', 'localhost:8000')
+        
         # Generate URL for the complaint form with station and platform info
-        data = f"https://{os.getenv('DOMAIN', 'localhost:8000')}/submit-complaint/?station={self.station.id}&platform={self.platform_number}&location={self.location_type.id}"
+        data = f"{protocol}://{domain}/submit-complaint/?station={self.station.id}&platform={self.platform_number}&location={self.id}"
         qr.add_data(data)
         qr.make(fit=True)
 
@@ -73,21 +98,39 @@ class PlatformLocation(models.Model):
         # Save QR code
         buffer = BytesIO()
         qr_image.save(buffer, format='PNG')
-        filename = f'qr_station_{self.station.station_code}_platform_{self.platform_number}_{self.location_type.name}.png'
+        # Use location description instead of location_type.name
+        location_name = self.location_description.replace(' ', '_').replace(',', '').replace('/', '_')
+        filename = f'qr_station_{self.station.station_code}_platform_{self.platform_number}_{location_name}_{self.id}.png'
         self.qr_code.save(filename, File(buffer), save=False)
         
     def save(self, *args, **kwargs):
-        if not self.qr_code:
-            self.generate_qr_code()
+        # Auto-generate hash_id if not set
+        if not hasattr(self, 'hash_id') or self.hash_id is None:
+            # Get the highest hash_id for this station and platform
+            max_hash_id = PlatformLocation.objects.filter(
+                station=self.station,
+                platform_number=self.platform_number
+            ).aggregate(models.Max('hash_id'))['hash_id__max']
+            
+            self.hash_id = (max_hash_id or 0) + 1
+        
+        # First save to get an ID
+        is_new = self.pk is None
         super().save(*args, **kwargs)
+        
+        # Then generate QR code if it's a new object or QR code doesn't exist
+        if is_new or not self.qr_code:
+            self.generate_qr_code()
+            # Save again to update the qr_code field
+            super().save(update_fields=['qr_code'])
 
     def __str__(self):
-        return f"{self.station.name} - Platform {self.platform_number} - {self.location_type.name}"
+        return f"{self.station.name} - Platform {self.platform_number} - {self.location_description}"
 
     class Meta:
         verbose_name = _('Platform Location')
         verbose_name_plural = _('Platform Locations')
-        unique_together = ['station', 'platform_number', 'location_type']
+        unique_together = ['station', 'platform_number', 'location_description']
 
 class ComplaintPhoto(models.Model):
     complaint = models.ForeignKey('Complaint', on_delete=models.CASCADE, related_name='photos')

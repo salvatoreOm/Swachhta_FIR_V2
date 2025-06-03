@@ -1,0 +1,37 @@
+{% extends 'complaints/base.html' %}
+{% load i18n %}
+
+{% block title %}{% trans "No Station Assigned" %} - {% trans "Railway Station Cleanliness" %}{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow">
+                <div class="card-header text-center" style="background-color: #375BA4; color: white;">
+                    <h4>{% trans "No Station Assigned" %}</h4>
+                </div>
+                <div class="card-body text-center">
+                    <div class="mb-4">
+                        <i class="fas fa-exclamation-triangle fa-3x text-warning"></i>
+                    </div>
+                    <p class="lead">
+                        {% trans "No railway station has been assigned to your account." %}
+                    </p>
+                    <p class="text-muted">
+                        {% trans "Please contact your administrator to assign a station to your account so you can start managing complaints." %}
+                    </p>
+                    <div class="mt-4">
+                        <a href="{% url 'user_logout' %}" class="btn btn-outline-secondary me-2">
+                            {% trans "Logout" %}
+                        </a>
+                        <a href="{% url 'station_setup' %}" class="btn" style="background-color: #375BA4; color: white;">
+                            {% trans "Setup Station" %}
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

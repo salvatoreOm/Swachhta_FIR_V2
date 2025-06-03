@@ -1,0 +1,174 @@
+{% extends 'complaints/base.html' %}
+{% load i18n %}
+
+{% block title %}{% trans "Station Dashboard" %} - {% trans "Railway Station Cleanliness" %}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>{% trans "Station Dashboard" %} - {{ user_station.name }}</h2>
+        <div>
+            <span class="me-3">{% trans "Welcome" %}, {{ user.first_name|default:user.username }}!</span>
+            <a href="{% url 'user_logout' %}" class="btn btn-outline-secondary">
+                {% trans "Logout" %}
+            </a>
+        </div>
+    </div>
+
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    <!-- Statistics Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card text-white" style="background-color: #375BA4;">
+                <div class="card-body">
+                    <h5 class="card-title">{% trans "Total Complaints" %}</h5>
+                    <h2>{{ total_complaints }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-warning">
+                <div class="card-body">
+                    <h5 class="card-title">{% trans "Pending" %}</h5>
+                    <h2>{{ pending_complaints }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-info">
+                <div class="card-body">
+                    <h5 class="card-title">{% trans "In Progress" %}</h5>
+                    <h2>{{ in_progress_complaints }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-success">
+                <div class="card-body">
+                    <h5 class="card-title">{% trans "Resolved" %}</h5>
+                    <h2>{{ resolved_complaints }}</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Station Info -->
+    <div class="card mb-4">
+        <div class="card-header" style="background-color: #375BA4; color: white;">
+            <h5 class="mb-0">{% trans "Station Information" %}</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <p><strong>{% trans "Station Name" %}:</strong> {{ user_station.name }}</p>
+                    <p><strong>{% trans "Station Code" %}:</strong> {{ user_station.station_code }}</p>
+                </div>
+                <div class="col-md-6">
+                    <p><strong>{% trans "Total Platforms" %}:</strong> {{ user_station.total_platforms }}</p>
+                    <p><strong>{% trans "City" %}:</strong> {{ user_station.city.name|default:"Not specified" }}</p>
+                </div>
+            </div>
+            <div class="mt-3">
+                <a href="{% url 'download_qr_codes' user_station.id %}" class="btn btn-primary me-2">
+                    <i class="fas fa-download"></i> {% trans "Download QR Codes" %}
+                </a>
+                <a href="{% url 'manage_station' %}" class="btn btn-outline-primary">
+                    <i class="fas fa-edit"></i> {% trans "Manage Station" %}
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Complaints Table -->
+    <div class="card">
+        <div class="card-header" style="background-color: #375BA4; color: white;">
+            <h5 class="mb-0">{% trans "Recent Complaints" %}</h5>
+        </div>
+        <div class="card-body">
+            {% if complaints %}
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>{% trans "Complaint #" %}</th>
+                                <th>{% trans "Date" %}</th>
+                                <th>{% trans "Platform" %}</th>
+                                <th>{% trans "Description" %}</th>
+                                <th>{% trans "Reporter" %}</th>
+                                <th>{% trans "Status" %}</th>
+                                <th>{% trans "Assigned Worker" %}</th>
+                                <th>{% trans "Actions" %}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for complaint in complaints %}
+                                <tr>
+                                    <td>{{ complaint.complaint_number }}</td>
+                                    <td>{{ complaint.created_at|date:"d/m/Y H:i" }}</td>
+                                    <td>
+                                        {% if complaint.platform_location %}
+                                            {% trans "Platform" %} {{ complaint.platform_location.platform_number }}
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ complaint.description|truncatechars:50 }}</td>
+                                    <td>{{ complaint.reporter_name }}</td>
+                                    <td>
+                                        <span class="badge 
+                                            {% if complaint.status == 'PENDING' %}bg-warning
+                                            {% elif complaint.status == 'IN_PROGRESS' %}bg-info
+                                            {% elif complaint.status == 'RESOLVED' %}bg-success
+                                            {% else %}bg-secondary{% endif %}">
+                                            {{ complaint.get_status_display }}
+                                        </span>
+                                    </td>
+                                    <td>{{ complaint.assigned_worker|default:"-" }}</td>
+                                    <td>
+                                        <div class="btn-group" role="group">
+                                            <!-- Status Update Form -->
+                                            <form method="post" action="{% url 'update_status' complaint.id %}" class="d-inline">
+                                                {% csrf_token %}
+                                                <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                                                    <option value="">{% trans "Update Status" %}</option>
+                                                    {% for status_value, status_label in complaint.STATUS_CHOICES %}
+                                                        <option value="{{ status_value }}" {% if complaint.status == status_value %}selected{% endif %}>
+                                                            {{ status_label }}
+                                                        </option>
+                                                    {% endfor %}
+                                                </select>
+                                            </form>
+                                        </div>
+                                        <!-- Assign Worker Form -->
+                                        <form method="post" action="{% url 'assign_worker' complaint.id %}" class="mt-2">
+                                            {% csrf_token %}
+                                            <div class="input-group input-group-sm">
+                                                <input type="text" name="worker_name" class="form-control" 
+                                                       placeholder="{% trans 'Worker name' %}" 
+                                                       value="{{ complaint.assigned_worker }}">
+                                                <button type="submit" class="btn btn-outline-primary btn-sm">
+                                                    {% trans "Assign" %}
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted">{% trans "No complaints found for your station." %}</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %} 
