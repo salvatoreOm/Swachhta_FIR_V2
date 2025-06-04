@@ -1,0 +1,387 @@
+{% extends 'complaints/base.html' %}
+{% load i18n %}
+
+{% block title %}{% trans "Station Analytics" %} - {% trans "Railway Station Cleanliness" %}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .nav-tabs .nav-link {
+        color: #375BA4;
+        border: none;
+        border-bottom: 3px solid transparent;
+    }
+    .nav-tabs .nav-link.active {
+        color: #375BA4;
+        background-color: transparent;
+        border-bottom: 3px solid #375BA4;
+        font-weight: bold;
+    }
+    .nav-tabs .nav-link:hover {
+        border-bottom: 3px solid #375BA4;
+        background-color: transparent;
+    }
+    .analytics-card {
+        transition: transform 0.2s;
+    }
+    .analytics-card:hover {
+        transform: translateY(-2px);
+    }
+    .chart-container {
+        position: relative;
+        height: 400px;
+        margin-bottom: 20px;
+    }
+    .worker-performance {
+        max-height: 300px;
+        overflow-y: auto;
+    }
+    .metric-icon {
+        font-size: 2rem;
+        opacity: 0.8;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>{% trans "Station Analytics" %} - {{ station.name }}</h2>
+        <div>
+            <span class="me-3">{% trans "Welcome" %}, {{ user.first_name|default:user.username }}!</span>
+            <a href="{% url 'user_logout' %}" class="btn btn-outline-secondary">
+                {% trans "Logout" %}
+            </a>
+        </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <ul class="nav nav-tabs mb-4" id="dashboardTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <a class="nav-link" href="{% url 'user_dashboard' %}">
+                <i class="fas fa-tachometer-alt me-2"></i>{% trans "Dashboard" %}
+            </a>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="analytics-tab" data-bs-toggle="tab" data-bs-target="#analytics-content" type="button" role="tab">
+                <i class="fas fa-chart-bar me-2"></i>{% trans "Analytics" %}
+            </button>
+        </li>
+    </ul>
+
+    <!-- Overview Statistics -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card analytics-card text-white" style="background-color: #375BA4;">
+                <div class="card-body d-flex align-items-center">
+                    <div class="flex-grow-1">
+                        <h5 class="card-title">{% trans "Total Complaints" %}</h5>
+                        <h2 class="mb-0">{{ total_complaints }}</h2>
+                    </div>
+                    <i class="fas fa-clipboard-list metric-icon"></i>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card analytics-card text-white bg-warning">
+                <div class="card-body d-flex align-items-center">
+                    <div class="flex-grow-1">
+                        <h5 class="card-title">{% trans "Pending" %}</h5>
+                        <h2 class="mb-0">{{ pending_complaints }}</h2>
+                    </div>
+                    <i class="fas fa-clock metric-icon"></i>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card analytics-card text-white bg-info">
+                <div class="card-body d-flex align-items-center">
+                    <div class="flex-grow-1">
+                        <h5 class="card-title">{% trans "In Progress" %}</h5>
+                        <h2 class="mb-0">{{ in_progress_complaints }}</h2>
+                    </div>
+                    <i class="fas fa-tools metric-icon"></i>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card analytics-card text-white bg-success">
+                <div class="card-body d-flex align-items-center">
+                    <div class="flex-grow-1">
+                        <h5 class="card-title">{% trans "Resolved" %}</h5>
+                        <h2 class="mb-0">{{ resolved_complaints }}</h2>
+                    </div>
+                    <i class="fas fa-check-circle metric-icon"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="row mb-4">
+        <!-- Status Distribution Chart -->
+        <div class="col-md-6">
+            <div class="card analytics-card">
+                <div class="card-header" style="background-color: #375BA4; color: white;">
+                    <h5 class="mb-0"><i class="fas fa-chart-pie me-2"></i>{% trans "Status Distribution" %}</h5>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container">
+                        <canvas id="statusChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Monthly Trend Chart -->
+        <div class="col-md-6">
+            <div class="card analytics-card">
+                <div class="card-header" style="background-color: #375BA4; color: white;">
+                    <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>{% trans "Monthly Trend" %}</h5>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container">
+                        <canvas id="monthlyChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Platform Statistics -->
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <div class="card analytics-card">
+                <div class="card-header" style="background-color: #375BA4; color: white;">
+                    <h5 class="mb-0"><i class="fas fa-train me-2"></i>{% trans "Platform-wise Complaints" %}</h5>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container">
+                        <canvas id="platformChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Worker Performance -->
+        <div class="col-md-4">
+            <div class="card analytics-card">
+                <div class="card-header" style="background-color: #375BA4; color: white;">
+                    <h5 class="mb-0"><i class="fas fa-users me-2"></i>{% trans "Top Workers" %}</h5>
+                </div>
+                <div class="card-body">
+                    <div class="worker-performance">
+                        {% if worker_stats %}
+                            {% for worker in worker_stats|slice:":5" %}
+                            <div class="d-flex justify-content-between align-items-center mb-3 p-2 bg-light rounded">
+                                <div>
+                                    <strong>{{ worker.assigned_worker }}</strong>
+                                    <br><small class="text-muted">{{ worker.total_assigned }} {% trans "assigned" %}</small>
+                                </div>
+                                <div class="text-end">
+                                    <span class="badge bg-success">{{ worker.resolved_count }} {% trans "resolved" %}</span>
+                                    <br><span class="badge bg-secondary mt-1">{{ worker.closed_count }} {% trans "closed" %}</span>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <p class="text-muted text-center">{% trans "No worker data available" %}</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- QR Location Performance -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card analytics-card">
+                <div class="card-header" style="background-color: #375BA4; color: white;">
+                    <h5 class="mb-0"><i class="fas fa-qrcode me-2"></i>{% trans "QR Location Performance" %}</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>{% trans "Platform" %}</th>
+                                    <th>{% trans "Location" %}</th>
+                                    <th>{% trans "Total Complaints" %}</th>
+                                    <th>{% trans "Pending" %}</th>
+                                    <th>{% trans "Resolved" %}</th>
+                                    <th>{% trans "Resolution Rate" %}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for qr_stat in qr_location_stats %}
+                                <tr>
+                                    <td>Platform {{ qr_stat.location.platform_number }}</td>
+                                    <td>{{ qr_stat.location.location_description }}</td>
+                                    <td>{{ qr_stat.total }}</td>
+                                    <td>
+                                        <span class="badge bg-warning">{{ qr_stat.pending }}</span>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-success">{{ qr_stat.resolved }}</span>
+                                    </td>
+                                    <td>
+                                        {% if qr_stat.total > 0 %}
+                                            {% widthratio qr_stat.resolved qr_stat.total 100 %}%
+                                        {% else %}
+                                            0%
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted">{% trans "No QR location data available" %}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+// Prepare data for charts
+const statusData = {
+    pending: {{ status_distribution.pending }},
+    in_progress: {{ status_distribution.in_progress }},
+    resolved: {{ status_distribution.resolved }},
+    closed: {{ status_distribution.closed }}
+};
+
+const platformData = [
+    {% for platform in platform_stats %}
+    {
+        platform: {{ platform.platform_number }},
+        total: {{ platform.total }},
+        pending: {{ platform.pending }},
+        in_progress: {{ platform.in_progress }},
+        resolved: {{ platform.resolved }},
+        closed: {{ platform.closed }}
+    }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+];
+
+const monthlyData = [
+    {% for month in monthly_data %}
+    {
+        month: '{{ month.month|date:"M Y" }}',
+        count: {{ month.count }}
+    }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+];
+
+// Status Distribution Pie Chart
+const statusCtx = document.getElementById('statusChart').getContext('2d');
+if (statusCtx) {
+    new Chart(statusCtx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Pending', 'In Progress', 'Resolved', 'Closed'],
+            datasets: [{
+                data: [statusData.pending, statusData.in_progress, statusData.resolved, statusData.closed],
+                backgroundColor: ['#ffc107', '#17a2b8', '#28a745', '#6c757d'],
+                borderWidth: 2,
+                borderColor: '#fff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                }
+            }
+        }
+    });
+}
+
+// Platform Chart
+const platformCtx = document.getElementById('platformChart').getContext('2d');
+if (platformCtx) {
+    new Chart(platformCtx, {
+        type: 'bar',
+        data: {
+            labels: platformData.map(function(p) { return 'Platform ' + p.platform; }),
+            datasets: [
+                {
+                    label: 'Total',
+                    data: platformData.map(function(p) { return p.total; }),
+                    backgroundColor: '#375BA4',
+                    borderColor: '#375BA4',
+                    borderWidth: 1
+                },
+                {
+                    label: 'Resolved',
+                    data: platformData.map(function(p) { return p.resolved; }),
+                    backgroundColor: '#28a745',
+                    borderColor: '#28a745',
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            },
+            plugins: {
+                legend: {
+                    position: 'top'
+                }
+            }
+        }
+    });
+}
+
+// Monthly Trend Chart
+const monthlyCtx = document.getElementById('monthlyChart').getContext('2d');
+if (monthlyCtx) {
+    new Chart(monthlyCtx, {
+        type: 'line',
+        data: {
+            labels: monthlyData.map(function(m) { return m.month; }),
+            datasets: [{
+                label: 'Complaints',
+                data: monthlyData.map(function(m) { return m.count; }),
+                borderColor: '#375BA4',
+                backgroundColor: 'rgba(55, 91, 164, 0.1)',
+                borderWidth: 3,
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        }
+    });
+}
+</script>
+{% endblock %} 

@@ -15,6 +15,10 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
 from django.contrib.auth.tokens import default_token_generator
 from django.contrib.auth.models import User
+from django.db.models import Count, Q
+from django.db.models.functions import TruncMonth
+from django.utils import timezone
+from datetime import datetime, timedelta
 import qrcode
 import random
 import string
@@ -173,6 +177,14 @@ def submit_complaint(request):
         if form.is_valid():
             complaint = form.save()
             
+            # Handle multiple photo uploads
+            photos = []
+            for i in range(1, 5):  # photo_1 to photo_4
+                photo = request.FILES.get(f'photo_{i}')
+                if photo:
+                    ComplaintPhoto.objects.create(complaint=complaint, photo=photo)
+                    photos.append(photo)
+            
             # Generate and save OTP
             otp = ''.join(random.choices(string.digits, k=6))
             OTPVerification.objects.create(complaint=complaint, otp=otp)
@@ -194,33 +206,48 @@ def submit_complaint(request):
             return redirect('verify_otp', complaint_id=complaint.id)
     else:
         initial = {}
+        station = None
+        platform_location = None
+        
+        # Handle QR scan parameters
         if 'station' in request.GET:
-            station = get_object_or_404(Station, id=request.GET['station'])
-            initial['station'] = station
-            
-            # Updated to handle new QR structure where 'location' refers to platform_location ID
-            if 'location' in request.GET:
-                try:
-                    platform_location = get_object_or_404(PlatformLocation, id=request.GET['location'])
-                    initial['platform_location'] = platform_location
-                except:
-                    # Fallback for old QR codes that might still use platform+location_type format
-                    if 'platform' in request.GET:
-                        try:
-                            # Try to find by platform number and location_type (backward compatibility)
-                            platform_location = PlatformLocation.objects.filter(
-                                station=station,
-                                platform_number=request.GET['platform'],
-                                location_type_id=request.GET['location']
-                            ).first()
-                            if platform_location:
-                                initial['platform_location'] = platform_location
-                        except:
-                            pass
+            try:
+                station = get_object_or_404(Station, id=request.GET['station'])
+                initial['station'] = station
+                
+                # Handle location parameter (refers to platform_location ID)
+                if 'location' in request.GET:
+                    try:
+                        platform_location = get_object_or_404(PlatformLocation, id=request.GET['location'])
+                        initial['platform_location'] = platform_location
+                    except:
+                        # Fallback for old QR codes that might still use platform+location_type format
+                        if 'platform' in request.GET:
+                            try:
+                                platform_location = PlatformLocation.objects.filter(
+                                    station=station,
+                                    platform_number=request.GET['platform'],
+                                    location_type_id=request.GET['location']
+                                ).first()
+                                if platform_location:
+                                    initial['platform_location'] = platform_location
+                            except:
+                                pass
+            except:
+                pass
         
         form = ComplaintForm(initial=initial)
+        
+        # Prepare context with location details for template display
+        context = {
+            'form': form,
+            'station': station,
+            'platform_location': platform_location,
+            'platform_number': platform_location.platform_number if platform_location else None,
+            'location_description': platform_location.location_description if platform_location else None,
+        }
     
-    return render(request, 'complaints/submit_complaint.html', {'form': form})
+    return render(request, 'complaints/submit_complaint.html', context)
 
 def verify_otp(request, complaint_id):
     complaint = get_object_or_404(Complaint, id=complaint_id)
@@ -353,7 +380,6 @@ def station_setup(request):
                         'id': platform_location.id,
                         'platform_number': platform_number,
                         'location_description': location_description,
-                        'hash_id': platform_location.hash_id,
                         'qr_code_url': platform_location.qr_code.url if platform_location.qr_code else None
                     })
 
@@ -419,6 +445,14 @@ def update_complaint_status(request, complaint_id):
     elif not request.user.is_superuser and complaint.station.city.admin != request.user:
         raise PermissionDenied(_("You don't have permission to update this complaint."))
     
+    # Prevent changes to closed complaints
+    if complaint.status == 'CLOSED':
+        messages.error(request, _('Cannot update status of a closed complaint.'))
+        if request.user.is_superuser or request.user.is_staff:
+            return redirect('dashboard')
+        else:
+            return redirect('user_dashboard')
+    
     new_status = request.POST.get('status')
     
     if new_status in dict(Complaint.STATUS_CHOICES):
@@ -450,6 +484,14 @@ def assign_worker(request, complaint_id):
     elif not request.user.is_superuser and complaint.station.city.admin != request.user:
         raise PermissionDenied(_("You don't have permission to assign workers to this complaint."))
     
+    # Prevent changes to closed complaints
+    if complaint.status == 'CLOSED':
+        messages.error(request, _('Cannot assign worker to a closed complaint.'))
+        if request.user.is_superuser or request.user.is_staff:
+            return redirect('dashboard')
+        else:
+            return redirect('user_dashboard')
+    
     worker_name = request.POST.get('worker_name')
     
     if worker_name:
@@ -464,6 +506,132 @@ def assign_worker(request, complaint_id):
         return redirect('dashboard')
     else:
         return redirect('user_dashboard')
+
+@login_required
+def view_complaint_photo(request, photo_id):
+    """View a specific complaint photo"""
+    photo = get_object_or_404(ComplaintPhoto, id=photo_id)
+    complaint = photo.complaint
+    
+    # Check permissions - users can only view photos for complaints in their station/city
+    if not request.user.is_superuser and not request.user.is_staff:
+        try:
+            user_station = request.user.managed_station
+            if complaint.station != user_station:
+                raise PermissionDenied(_("You don't have permission to view this photo."))
+        except Station.DoesNotExist:
+            raise PermissionDenied(_("You don't have a station assigned."))
+    elif not request.user.is_superuser and complaint.station.city.admin != request.user:
+        raise PermissionDenied(_("You don't have permission to view this photo."))
+    
+    return render(request, 'complaints/view_photo.html', {
+        'photo': photo,
+        'complaint': complaint
+    })
+
+@login_required
+def station_analytics(request):
+    """Analytics dashboard for station managers showing detailed statistics"""
+    # Only allow regular users to view analytics for their station
+    if request.user.is_superuser or request.user.is_staff:
+        messages.error(request, _('Superusers and staff should use the admin panel for analytics.'))
+        return redirect('dashboard')
+    
+    # Get user's station
+    try:
+        user_profile = UserProfile.objects.get(user=request.user)
+        station = user_profile.station
+    except UserProfile.DoesNotExist:
+        try:
+            station = request.user.managed_station
+        except Station.DoesNotExist:
+            station = None
+    
+    if not station:
+        messages.error(request, _('No station assigned to your account.'))
+        return redirect('user_dashboard')
+    
+    # Get all complaints for this station
+    complaints = Complaint.objects.filter(station=station)
+    
+    # Overall statistics
+    total_complaints = complaints.count()
+    pending_complaints = complaints.filter(status='PENDING').count()
+    in_progress_complaints = complaints.filter(status='IN_PROGRESS').count()
+    resolved_complaints = complaints.filter(status='RESOLVED').count()
+    closed_complaints = complaints.filter(status='CLOSED').count()
+    
+    # Platform-wise statistics
+    platform_stats = []
+    for platform_num in range(1, station.total_platforms + 1):
+        platform_complaints = complaints.filter(platform_location__platform_number=platform_num)
+        platform_stats.append({
+            'platform_number': platform_num,
+            'total': platform_complaints.count(),
+            'pending': platform_complaints.filter(status='PENDING').count(),
+            'in_progress': platform_complaints.filter(status='IN_PROGRESS').count(),
+            'resolved': platform_complaints.filter(status='RESOLVED').count(),
+            'closed': platform_complaints.filter(status='CLOSED').count(),
+        })
+    
+    # QR Location-wise statistics
+    qr_location_stats = []
+    for location in station.platform_locations.all():
+        location_complaints = complaints.filter(platform_location=location)
+        qr_location_stats.append({
+            'location': location,
+            'total': location_complaints.count(),
+            'pending': location_complaints.filter(status='PENDING').count(),
+            'resolved': location_complaints.filter(status='RESOLVED').count(),
+        })
+    
+    # Worker performance statistics
+    worker_stats = complaints.exclude(assigned_worker__isnull=True).exclude(assigned_worker='').values('assigned_worker').annotate(
+        total_assigned=Count('id'),
+        resolved_count=Count('id', filter=Q(status='RESOLVED')),
+        closed_count=Count('id', filter=Q(status='CLOSED'))
+    ).order_by('-resolved_count')
+    
+    # Monthly trend (last 12 months)
+    end_date = timezone.now()
+    start_date = end_date - timedelta(days=365)
+    
+    monthly_data = complaints.filter(
+        created_at__range=[start_date, end_date]
+    ).annotate(
+        month=TruncMonth('created_at')
+    ).values('month').annotate(
+        count=Count('id')
+    ).order_by('month')
+    
+    # Status distribution for charts
+    status_distribution = {
+        'pending': pending_complaints,
+        'in_progress': in_progress_complaints,
+        'resolved': resolved_complaints,
+        'closed': closed_complaints,
+    }
+    
+    # Recent activity (last 30 days)
+    thirty_days_ago = timezone.now() - timedelta(days=30)
+    recent_complaints = complaints.filter(created_at__gte=thirty_days_ago).order_by('-created_at')[:10]
+    
+    context = {
+        'station': station,
+        'total_complaints': total_complaints,
+        'pending_complaints': pending_complaints,
+        'in_progress_complaints': in_progress_complaints,
+        'resolved_complaints': resolved_complaints,
+        'closed_complaints': closed_complaints,
+        'platform_stats': platform_stats,
+        'qr_location_stats': qr_location_stats,
+        'worker_stats': worker_stats,
+        'monthly_data': monthly_data,
+        'status_distribution': status_distribution,
+        'recent_complaints': recent_complaints,
+    }
+    
+    return render(request, 'complaints/station_analytics.html', context)
 
 @login_required
 def manage_station(request):
@@ -490,14 +658,13 @@ def manage_station(request):
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
-            station_name = data.get('station_name')
-            total_platforms = int(data.get('total_platforms', 1))
+            # Station name is now unchangeable - remove station_name from updates
+            total_platforms = int(data.get('total_platforms', station.total_platforms))
             new_locations = data.get('new_locations', [])
             updated_locations = data.get('updated_locations', [])
             deleted_locations = data.get('deleted_locations', [])
             
-            # Update station details
-            station.name = station_name
+            # Update station details (only total_platforms, not name)
             station.total_platforms = total_platforms
             station.save()
             
@@ -511,12 +678,14 @@ def manage_station(request):
                     continue
             
             # Delete locations (only if they have no complaints)
+            deleted_count = 0
             for location_id in deleted_locations:
                 try:
                     location = PlatformLocation.objects.get(id=location_id, station=station)
                     # Check if location has complaints
                     if not location.complaint_set.exists():
                         location.delete()
+                        deleted_count += 1
                 except PlatformLocation.DoesNotExist:
                     continue
             
@@ -534,9 +703,17 @@ def manage_station(request):
                     )
                     created_count += 1
             
+            message_parts = []
+            if created_count > 0:
+                message_parts.append(f'{created_count} new QR codes created')
+            if deleted_count > 0:
+                message_parts.append(f'{deleted_count} QR codes deleted')
+            if not message_parts:
+                message_parts.append('Station updated successfully')
+            
             return JsonResponse({
                 'status': 'success',
-                'message': _('Station updated successfully. {} new QR codes created.').format(created_count)
+                'message': _('. '.join(message_parts) + '.')
             })
             
         except Exception as e:
@@ -547,7 +724,7 @@ def manage_station(request):
     
     # GET request - show manage form
     # Get existing platform locations
-    platform_locations = station.platform_locations.all().order_by('platform_number', 'hash_id')
+    platform_locations = station.platform_locations.all().order_by('platform_number', 'id')
     
     # Prepare location data for JavaScript
     existing_locations = []
@@ -557,7 +734,6 @@ def manage_station(request):
             'id': location.id,
             'platform_number': location.platform_number,
             'location_description': location.location_description,
-            'hash_id': location.hash_id,
             'qr_code_url': location.qr_code.url if location.qr_code else None,
             'has_complaints': has_complaints
         })

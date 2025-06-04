@@ -21,12 +21,14 @@ urlpatterns = [
     
     # User Dashboard (non-admin)
     path('dashboard/', views.user_dashboard, name='user_dashboard'),
+    path('analytics/', views.station_analytics, name='station_analytics'),
     
     # Admin Dashboard (for superuser/staff)
     path('admin-dashboard/', views.dashboard, name='dashboard'),
     
     # Public complaint submission
     path('submit/', views.submit_complaint, name='submit_complaint'),
+    path('submit-complaint/', views.submit_complaint, name='submit_complaint_qr'),
     path('verify-otp/<int:complaint_id>/', views.verify_otp, name='verify_otp'),
     path('success/<int:complaint_id>/', views.complaint_success, name='complaint_success'),
     
@@ -41,6 +43,9 @@ urlpatterns = [
     # Complaint management
     path('update-status/<int:complaint_id>/', views.update_complaint_status, name='update_status'),
     path('assign-worker/<int:complaint_id>/', views.assign_worker, name='assign_worker'),
+    
+    # Photo viewing
+    path('view-photo/<int:photo_id>/', views.view_complaint_photo, name='view_complaint_photo'),
     
     # Utility pages
     path('success/', lambda request: render(request, 'complaints/success.html'), name='success'),

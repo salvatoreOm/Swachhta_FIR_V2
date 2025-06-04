@@ -68,7 +68,6 @@ class PlatformLocation(models.Model):
     # Replace location_type with custom location description
     location_type = models.ForeignKey(LocationType, on_delete=models.CASCADE, null=True, blank=True)  # Keep for backward compatibility
     location_description = models.CharField(_('Location Description'), max_length=200, default='General Area', help_text=_('Custom description of the location (e.g., "Near Ticket Counter", "Platform Entry", "Waiting Area")'))
-    hash_id = models.IntegerField(_('Hash ID'), default=1, help_text=_('Consecutive ID for this platform location'))
     qr_code = models.ImageField(upload_to='qr_codes/', blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     
@@ -85,7 +84,8 @@ class PlatformLocation(models.Model):
         domain = os.getenv('DOMAIN', 'localhost:8000')
         
         # Generate URL for the complaint form with station and platform info
-        data = f"{protocol}://{domain}/submit-complaint/?station={self.station.id}&platform={self.platform_number}&location={self.id}"
+        # Include language prefix to match Django's i18n URL structure
+        data = f"{protocol}://{domain}/en/submit-complaint/?station={self.station.id}&platform={self.platform_number}&location={self.id}"
         qr.add_data(data)
         qr.make(fit=True)
 
@@ -104,16 +104,6 @@ class PlatformLocation(models.Model):
         self.qr_code.save(filename, File(buffer), save=False)
         
     def save(self, *args, **kwargs):
-        # Auto-generate hash_id if not set
-        if not hasattr(self, 'hash_id') or self.hash_id is None:
-            # Get the highest hash_id for this station and platform
-            max_hash_id = PlatformLocation.objects.filter(
-                station=self.station,
-                platform_number=self.platform_number
-            ).aggregate(models.Max('hash_id'))['hash_id__max']
-            
-            self.hash_id = (max_hash_id or 0) + 1
-        
         # First save to get an ID
         is_new = self.pk is None
         super().save(*args, **kwargs)
@@ -151,8 +141,8 @@ class Complaint(models.Model):
     
     station = models.ForeignKey(Station, on_delete=models.CASCADE, verbose_name=_('Station'))
     platform_location = models.ForeignKey(PlatformLocation, on_delete=models.CASCADE, verbose_name=_('Platform Location'), null=True, blank=True)
-    description = models.TextField(_('Issue Description'))
-    reporter_name = models.CharField(_('Reporter Name'), max_length=100)
+    description = models.TextField(_('Issue Description'), blank=True, null=True)
+    reporter_name = models.CharField(_('Reporter Name'), max_length=100, blank=True, null=True)
     reporter_phone = models.CharField(_('Phone Number'), max_length=15)
     status = models.CharField(_('Status'), max_length=20, choices=STATUS_CHOICES, default='PENDING')
     created_at = models.DateTimeField(_('Created At'), auto_now_add=True)

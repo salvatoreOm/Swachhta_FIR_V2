@@ -4,6 +4,29 @@
 
 {% block title %}{% trans "Login" %} - {% trans "Railway Station Cleanliness" %}{% endblock %}
 
+{% block extra_css %}
+<style>
+    .password-toggle {
+        position: relative;
+    }
+    .password-toggle-icon {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        cursor: pointer;
+        color: #6c757d;
+        z-index: 10;
+    }
+    .password-toggle-icon:hover {
+        color: #375BA4;
+    }
+    .password-toggle input {
+        padding-right: 40px;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container mt-5">
     <div class="row justify-content-center">
@@ -30,7 +53,10 @@
                         </div>
                         <div class="mb-3">
                             <label for="password" class="form-label">{% trans "Password" %}</label>
-                            <input type="password" class="form-control" id="password" name="password" required>
+                            <div class="password-toggle">
+                                <input type="password" class="form-control" id="password" name="password" required>
+                                <i class="fas fa-eye password-toggle-icon" id="togglePassword" title="{% trans 'Show/Hide Password' %}"></i>
+                            </div>
                         </div>
                         <button type="submit" class="btn w-100" style="background-color: #375BA4; color: white;">
                             {% trans "Login" %}
@@ -47,4 +73,30 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const togglePassword = document.getElementById('togglePassword');
+    const passwordField = document.getElementById('password');
+    
+    togglePassword.addEventListener('click', function() {
+        // Toggle the type attribute
+        const type = passwordField.getAttribute('type') === 'password' ? 'text' : 'password';
+        passwordField.setAttribute('type', type);
+        
+        // Toggle the eye icon
+        this.classList.toggle('fa-eye');
+        this.classList.toggle('fa-eye-slash');
+        
+        // Update tooltip
+        if (type === 'text') {
+            this.setAttribute('title', '{% trans "Hide Password" %}');
+        } else {
+            this.setAttribute('title', '{% trans "Show Password" %}');
+        }
+    });
+});
+</script>
 {% endblock %} 

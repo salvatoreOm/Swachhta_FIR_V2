@@ -102,6 +102,8 @@
                                     <th>{% trans "Station" %}</th>
                                     <th>{% trans "Platform" %}</th>
                                     <th>{% trans "Location" %}</th>
+                                    <th>{% trans "Description" %}</th>
+                                    <th>{% trans "Photos" %}</th>
                                     <th>{% trans "Status" %}</th>
                                     <th>{% trans "Assigned Worker" %}</th>
                                     <th>{% trans "Created At" %}</th>
@@ -113,25 +115,62 @@
                                 <tr>
                                     <td>{{ complaint.complaint_number }}</td>
                                     <td>{{ complaint.station.name }}</td>
-                                    <td>{{ complaint.platform_location.platform_number }}</td>
-                                    <td>{{ complaint.platform_location.location_type.name }}</td>
+                                    <td>{% if complaint.platform_location %}{{ complaint.platform_location.platform_number }}{% else %}-{% endif %}</td>
+                                    <td>{% if complaint.platform_location %}{{ complaint.platform_location.location_description }}{% else %}-{% endif %}</td>
                                     <td>
-                                        <span class="badge {% if complaint.status == 'PENDING' %}bg-warning
-                                                         {% elif complaint.status == 'IN_PROGRESS' %}bg-info
-                                                         {% elif complaint.status == 'RESOLVED' %}bg-success
-                                                         {% else %}bg-secondary{% endif %}">
-                                            {{ complaint.get_status_display }}
-                                        </span>
+                                        <div style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
+                                            {{ complaint.description|truncatewords:10 }}
+                                        </div>
                                     </td>
                                     <td>
-                                        <form class="worker-form d-flex align-items-center" data-complaint-id="{{ complaint.id }}">
-                                            {% csrf_token %}
-                                            <input type="text" class="worker-input form-control form-control-sm" 
-                                                   value="{{ complaint.assigned_worker|default:'' }}" 
-                                                   placeholder="{% trans 'Assign worker' %}"
-                                                   name="worker_name">
-                                            <button type="submit" class="btn btn-primary btn-sm save-worker">{% trans "Save" %}</button>
-                                        </form>
+                                        {% if complaint.photos.exists %}
+                                            <div class="btn-group">
+                                                <button type="button" class="btn btn-sm btn-outline-info dropdown-toggle" data-bs-toggle="dropdown">
+                                                    <i class="fas fa-images"></i> {{ complaint.photos.count }}
+                                                </button>
+                                                <ul class="dropdown-menu">
+                                                    {% for photo in complaint.photos.all %}
+                                                    <li>
+                                                        <a class="dropdown-item" href="{% url 'view_complaint_photo' photo.id %}" target="_blank">
+                                                            <i class="fas fa-image me-1"></i>Photo {{ forloop.counter }}
+                                                        </a>
+                                                    </li>
+                                                    {% endfor %}
+                                                </ul>
+                                            </div>
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if complaint.status == 'CLOSED' %}
+                                            <span class="badge bg-secondary">{{ complaint.get_status_display }}</span>
+                                        {% else %}
+                                            <form class="status-form d-inline" data-complaint-id="{{ complaint.id }}">
+                                                {% csrf_token %}
+                                                <select class="form-select form-select-sm status-select" name="status" style="width: auto;">
+                                                    {% for status_code, status_name in complaint.STATUS_CHOICES %}
+                                                    <option value="{{ status_code }}" {% if complaint.status == status_code %}selected{% endif %}>
+                                                        {{ status_name }}
+                                                    </option>
+                                                    {% endfor %}
+                                                </select>
+                                            </form>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if complaint.status == 'CLOSED' %}
+                                            <span class="text-muted">{{ complaint.assigned_worker|default:'-' }}</span>
+                                        {% else %}
+                                            <form class="worker-form d-flex align-items-center" data-complaint-id="{{ complaint.id }}">
+                                                {% csrf_token %}
+                                                <input type="text" class="worker-input form-control form-control-sm" 
+                                                       value="{{ complaint.assigned_worker|default:'' }}" 
+                                                       placeholder="{% trans 'Assign worker' %}"
+                                                       name="worker_name">
+                                                <button type="submit" class="btn btn-primary btn-sm save-worker">{% trans "Save" %}</button>
+                                            </form>
+                                        {% endif %}
                                     </td>
                                     <td>{{ complaint.created_at|date:"Y-m-d H:i" }}</td>
                                 </tr>
@@ -152,7 +191,9 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const workerForms = document.querySelectorAll('.worker-form');
+    const statusSelects = document.querySelectorAll('.status-select');
     
+    // Handle worker assignment
     workerForms.forEach(form => {
         form.addEventListener('submit', async function(e) {
             e.preventDefault();
@@ -170,14 +211,55 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
                 
                 if (response.ok) {
-                    const data = await response.json();
-                    if (data.status === 'success') {
-                        alert('{% trans "Worker assigned successfully!" %}');
+                    alert('{% trans "Worker assigned successfully!" %}');
+                    location.reload();
+                } else {
+                    const text = await response.text();
+                    if (text.includes('closed complaint')) {
+                        alert('{% trans "Cannot assign worker to a closed complaint." %}');
+                    } else {
+                        alert('{% trans "Error assigning worker." %}');
                     }
                 }
             } catch (error) {
                 console.error('Error:', error);
                 alert('{% trans "Error assigning worker." %}');
+            }
+        });
+    });
+
+    // Handle status updates
+    statusSelects.forEach(select => {
+        select.addEventListener('change', async function() {
+            const complaintId = this.closest('.status-form').dataset.complaintId;
+            const newStatus = this.value;
+            const csrfToken = this.closest('.status-form').querySelector('[name=csrfmiddlewaretoken]').value;
+            
+            try {
+                const response = await fetch(`/update-status/${complaintId}/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: `status=${encodeURIComponent(newStatus)}`
+                });
+                
+                if (response.ok) {
+                    alert('{% trans "Status updated successfully!" %}');
+                    location.reload();
+                } else {
+                    const text = await response.text();
+                    if (text.includes('closed complaint')) {
+                        alert('{% trans "Cannot update status of a closed complaint." %}');
+                        location.reload();
+                    } else {
+                        alert('{% trans "Error updating status." %}');
+                    }
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('{% trans "Error updating status." %}');
             }
         });
     });

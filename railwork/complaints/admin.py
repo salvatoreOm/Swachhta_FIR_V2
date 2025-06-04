@@ -23,8 +23,8 @@ class CityAdmin(admin.ModelAdmin):
 class PlatformLocationInline(admin.TabularInline):
     model = PlatformLocation
     extra = 0
-    readonly_fields = ('qr_code_preview', 'hash_id')
-    fields = ('platform_number', 'location_description', 'hash_id', 'qr_code_preview')
+    readonly_fields = ('qr_code_preview',)
+    fields = ('platform_number', 'location_description', 'qr_code_preview')
 
     def qr_code_preview(self, obj):
         if obj.qr_code:
