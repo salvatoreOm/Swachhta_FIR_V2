@@ -68,8 +68,23 @@ class PlatformLocation(models.Model):
     # Replace location_type with custom location description
     location_type = models.ForeignKey(LocationType, on_delete=models.CASCADE, null=True, blank=True)  # Keep for backward compatibility
     location_description = models.CharField(_('Location Description'), max_length=200, default='General Area', help_text=_('Custom description of the location (e.g., "Near Ticket Counter", "Platform Entry", "Waiting Area")'))
+    hash_id = models.CharField(_('Hash ID'), max_length=10, blank=True, help_text=_('Format: P[platform][sequence] (e.g., P11, P12, P21)'))
     qr_code = models.ImageField(upload_to='qr_codes/', blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+    
+    def generate_hash_id(self):
+        """Generate hash_id in format P[platform][sequence]"""
+        # Count existing locations for this platform
+        existing_count = PlatformLocation.objects.filter(
+            station=self.station,
+            platform_number=self.platform_number
+        ).exclude(pk=self.pk).count()
+        
+        # Sequence number is existing_count + 1
+        sequence = existing_count + 1
+        
+        # Format: P + platform_number + sequence_number
+        self.hash_id = f"P{self.platform_number}{sequence}"
     
     def generate_qr_code(self):
         qr = qrcode.QRCode(
@@ -104,9 +119,20 @@ class PlatformLocation(models.Model):
         self.qr_code.save(filename, File(buffer), save=False)
         
     def save(self, *args, **kwargs):
+        # Generate hash_id if it doesn't exist
+        if not self.hash_id:
+            # We need to call this after super().save() to ensure we have a pk for exclusion
+            pass
+        
         # First save to get an ID
         is_new = self.pk is None
         super().save(*args, **kwargs)
+        
+        # Generate hash_id if it wasn't set
+        if not self.hash_id:
+            self.generate_hash_id()
+            # Save again to update the hash_id field
+            super().save(update_fields=['hash_id'])
         
         # Then generate QR code if it's a new object or QR code doesn't exist
         if is_new or not self.qr_code:
@@ -131,12 +157,40 @@ class ComplaintPhoto(models.Model):
         verbose_name = _('Complaint Photo')
         verbose_name_plural = _('Complaint Photos')
 
+class QRScanAttempt(models.Model):
+    """Track duplicate QR scan attempts for the same location within 15-minute windows"""
+    platform_location = models.ForeignKey(PlatformLocation, on_delete=models.CASCADE, related_name='scan_attempts')
+    original_complaint = models.ForeignKey('Complaint', on_delete=models.CASCADE, related_name='duplicate_scan_attempts')
+    attempt_count = models.IntegerField(_('Attempt Count'), default=1, help_text=_('Number of duplicate scan attempts'))
+    last_attempt_at = models.DateTimeField(_('Last Attempt At'), auto_now=True)
+    created_at = models.DateTimeField(_('Created At'), auto_now_add=True)
+    
+    # Optional: store some info about the attempts
+    reporter_phones = models.TextField(_('Reporter Phones'), blank=True, help_text=_('Comma-separated list of phone numbers that attempted'))
+    
+    class Meta:
+        verbose_name = _('QR Scan Attempt')
+        verbose_name_plural = _('QR Scan Attempts')
+        unique_together = ['platform_location', 'original_complaint']
+    
+    def __str__(self):
+        return f"Scan attempts for {self.platform_location.hash_id} - {self.attempt_count} attempts"
+    
+    def increment_attempt(self, reporter_phone=None):
+        """Increment the attempt count and optionally track the phone number"""
+        self.attempt_count += 1
+        if reporter_phone and reporter_phone not in self.reporter_phones:
+            if self.reporter_phones:
+                self.reporter_phones += f", {reporter_phone}"
+            else:
+                self.reporter_phones = reporter_phone
+        self.save()
+
 class Complaint(models.Model):
     STATUS_CHOICES = [
         ('PENDING', _('Pending')),
         ('IN_PROGRESS', _('In Progress')),
         ('RESOLVED', _('Resolved')),
-        ('CLOSED', _('Closed')),
     ]
     
     station = models.ForeignKey(Station, on_delete=models.CASCADE, verbose_name=_('Station'))
@@ -150,6 +204,15 @@ class Complaint(models.Model):
     complaint_number = models.CharField(_('Complaint Number'), max_length=20, unique=True, editable=False)
     is_verified = models.BooleanField(_('Is Verified'), default=False)
     assigned_worker = models.CharField(_('Assigned Worker'), max_length=100, blank=True, null=True)
+    
+    # Parent-child relationship for intensity tracking
+    parent_complaint = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='daughter_complaints', verbose_name=_('Parent Complaint'))
+    intensity_count = models.IntegerField(_('Intensity Count'), default=0, help_text=_('Number for daughter complaints (1, 2, 3...)'))
+    
+    # Closed status tracking
+    is_closed = models.BooleanField(_('Is Closed'), default=False)
+    closed_at = models.DateTimeField(_('Closed At'), null=True, blank=True)
+    closed_status = models.CharField(_('Status When Closed'), max_length=20, choices=STATUS_CHOICES, null=True, blank=True)
 
     def save(self, *args, **kwargs):
         if not self.complaint_number:
@@ -162,9 +225,18 @@ class Complaint(models.Model):
             self.complaint_number = f"{date_str}-{self.station.city.code}-{self.station.station_code}-{count:04d}"
         super().save(*args, **kwargs)
 
+    def get_closed_status_display(self):
+        """Get display name for closed status"""
+        if self.closed_status:
+            for status_code, status_name in self.STATUS_CHOICES:
+                if status_code == self.closed_status:
+                    return status_name
+        return _('Unknown')
+
     def __str__(self):
         platform_info = f" Platform {self.platform_location.platform_number}" if self.platform_location else ""
-        return f"Complaint {self.complaint_number} - {self.station.name}{platform_info}"
+        parent_info = f" (Child #{self.intensity_count})" if self.parent_complaint else ""
+        return f"Complaint {self.complaint_number} - {self.station.name}{platform_info}{parent_info}"
 
     class Meta:
         verbose_name = _('Complaint')

@@ -15,9 +15,9 @@
                     </h3>
                     <p class="lead">{% trans "Sorry, something went wrong." %}</p>
                     <div class="mt-4">
-                        <a href="{% url 'dashboard' %}" class="btn btn-primary">
-                            {% trans "Return to Dashboard" %}
-                        </a>
+                        <button onclick="history.back()" class="btn btn-primary">
+                            {% trans "Go Back" %}
+                        </button>
                     </div>
                 </div>
             </div>

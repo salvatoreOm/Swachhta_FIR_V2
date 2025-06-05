@@ -24,7 +24,7 @@ import random
 import string
 import requests
 from io import BytesIO
-from .models import Station, Complaint, OTPVerification, ComplaintPhoto, City, PlatformLocation, LocationType, UserProfile
+from .models import Station, Complaint, OTPVerification, ComplaintPhoto, City, PlatformLocation, LocationType, UserProfile, QRScanAttempt
 from .forms import ComplaintForm, OTPVerificationForm
 from django.core.exceptions import PermissionDenied
 import json
@@ -32,6 +32,7 @@ import os
 from zipfile import ZipFile
 from django.core.files.base import ContentFile
 from PIL import Image
+from django.db import models
 
 # Authentication Views
 def user_login(request):
@@ -107,14 +108,28 @@ def user_dashboard(request):
         messages.error(request, _('No station assigned to your account. Please contact administrator.'))
         return render(request, 'complaints/auth/no_station.html')
     
-    # Get complaints only for user's station
-    complaints = Complaint.objects.filter(station=user_station).order_by('-created_at')
+    # Get tab parameter
+    tab = request.GET.get('tab', 'recent')
     
-    # Get statistics
-    total_complaints = complaints.count()
-    pending_complaints = complaints.filter(status='PENDING').count()
-    in_progress_complaints = complaints.filter(status='IN_PROGRESS').count()
-    resolved_complaints = complaints.filter(status='RESOLVED').count()
+    # Get all complaints for user's station
+    all_complaints = Complaint.objects.filter(station=user_station)
+    
+    if tab == 'closed':
+        # Show closed complaints
+        complaints = all_complaints.filter(is_closed=True).order_by('-closed_at')
+        # Statistics for closed complaints
+        total_complaints = complaints.count()
+        pending_complaints = complaints.filter(closed_status='PENDING').count()
+        in_progress_complaints = complaints.filter(closed_status='IN_PROGRESS').count()
+        resolved_complaints = complaints.filter(closed_status='RESOLVED').count()
+    else:
+        # Show recent (non-closed) complaints
+        complaints = all_complaints.filter(is_closed=False).order_by('-created_at')
+        # Statistics for recent complaints
+        total_complaints = complaints.count()
+        pending_complaints = complaints.filter(status='PENDING').count()
+        in_progress_complaints = complaints.filter(status='IN_PROGRESS').count()
+        resolved_complaints = complaints.filter(status='RESOLVED').count()
     
     context = {
         'complaints': complaints,
@@ -123,6 +138,7 @@ def user_dashboard(request):
         'pending_complaints': pending_complaints,
         'in_progress_complaints': in_progress_complaints,
         'resolved_complaints': resolved_complaints,
+        'active_tab': tab,
     }
     return render(request, 'complaints/user_dashboard.html', context)
 
@@ -175,7 +191,57 @@ def submit_complaint(request):
     if request.method == 'POST':
         form = ComplaintForm(request.POST, request.FILES)
         if form.is_valid():
-            complaint = form.save()
+            complaint = form.save(commit=False)
+            
+            # Smart QR Logic: Check if there's already a complaint for this location within 15 minutes
+            if complaint.platform_location:
+                fifteen_minutes_ago = timezone.now() - timedelta(minutes=15)
+                
+                # Check for ANY complaint (not just IN_PROGRESS) from the same location within 15 minutes
+                existing_recent_complaint = Complaint.objects.filter(
+                    platform_location=complaint.platform_location,
+                    created_at__gte=fifteen_minutes_ago,
+                    is_closed=False,
+                    is_verified=True  # Only consider verified complaints
+                ).first()
+                
+                if existing_recent_complaint:
+                    # Track this duplicate attempt
+                    scan_attempt, created = QRScanAttempt.objects.get_or_create(
+                        platform_location=complaint.platform_location,
+                        original_complaint=existing_recent_complaint,
+                        defaults={'attempt_count': 1, 'reporter_phones': complaint.reporter_phone}
+                    )
+                    
+                    if not created:
+                        # Increment existing attempt count
+                        scan_attempt.increment_attempt(complaint.reporter_phone)
+                    
+                    # Don't create a new complaint - redirect to "already in progress" page
+                    return redirect('complaint_already_in_progress', 
+                                  hash_id=complaint.platform_location.hash_id,
+                                  existing_complaint_id=existing_recent_complaint.id)
+                
+                # If no recent complaint, proceed with parent-child logic for intensity tracking
+                parent_complaint = Complaint.objects.filter(
+                    platform_location=complaint.platform_location,
+                    status='IN_PROGRESS',
+                    created_at__gte=fifteen_minutes_ago,
+                    parent_complaint__isnull=True,  # Only look for parent complaints
+                    is_closed=False
+                ).first()
+                
+                if parent_complaint:
+                    # This becomes a daughter complaint
+                    complaint.parent_complaint = parent_complaint
+                    complaint.status = 'IN_PROGRESS'
+                    complaint.assigned_worker = parent_complaint.assigned_worker
+                    
+                    # Calculate intensity count
+                    existing_daughters = parent_complaint.daughter_complaints.count()
+                    complaint.intensity_count = existing_daughters + 1
+            
+            complaint.save()
             
             # Handle multiple photo uploads
             photos = []
@@ -275,6 +341,42 @@ def verify_otp(request, complaint_id):
 def complaint_success(request, complaint_id):
     complaint = get_object_or_404(Complaint, id=complaint_id)
     return render(request, 'complaints/success.html', {'complaint': complaint})
+
+def complaint_already_in_progress(request, hash_id, existing_complaint_id):
+    """Show page when user tries to submit complaint for location that already has recent complaint"""
+    try:
+        existing_complaint = get_object_or_404(Complaint, id=existing_complaint_id)
+        platform_location = existing_complaint.platform_location
+        
+        # Calculate time since existing complaint
+        time_since = existing_complaint.created_at
+        minutes_ago = int((timezone.now() - time_since).total_seconds() / 60)
+        
+        # Get the scan attempt count for this location and complaint
+        try:
+            scan_attempt = QRScanAttempt.objects.get(
+                platform_location=platform_location,
+                original_complaint=existing_complaint
+            )
+            attempt_count = scan_attempt.attempt_count
+            total_attempts = attempt_count + 1  # +1 for the original complaint
+        except QRScanAttempt.DoesNotExist:
+            attempt_count = 0
+            total_attempts = 1
+        
+        context = {
+            'hash_id': hash_id,
+            'platform_location': platform_location,
+            'existing_complaint': existing_complaint,
+            'minutes_ago': minutes_ago,
+            'station': platform_location.station if platform_location else None,
+            'attempt_count': attempt_count,
+            'total_attempts': total_attempts,
+        }
+        return render(request, 'complaints/already_in_progress.html', context)
+    except:
+        # If there's any error, redirect to regular complaint form
+        return redirect('submit_complaint')
 
 @login_required
 def dashboard(request):
@@ -380,6 +482,7 @@ def station_setup(request):
                         'id': platform_location.id,
                         'platform_number': platform_number,
                         'location_description': location_description,
+                        'hash_id': platform_location.hash_id,
                         'qr_code_url': platform_location.qr_code.url if platform_location.qr_code else None
                     })
 
@@ -419,9 +522,9 @@ def download_qr_codes(request, station_id):
     with ZipFile(zip_buffer, 'w') as zip_file:
         for platform_location in station.platform_locations.all():
             if platform_location.qr_code:
-                # Use location_description instead of location_type.name
+                # Use hash_id and location_description for better organization
                 location_name = platform_location.location_description.replace(' ', '_').replace(',', '').replace('/', '_')
-                qr_name = f"platform_{platform_location.platform_number}_{location_name}.png"
+                qr_name = f"{platform_location.hash_id}_{location_name}.png"
                 zip_file.writestr(qr_name, platform_location.qr_code.read())
     
     # Return the ZIP file
@@ -446,7 +549,7 @@ def update_complaint_status(request, complaint_id):
         raise PermissionDenied(_("You don't have permission to update this complaint."))
     
     # Prevent changes to closed complaints
-    if complaint.status == 'CLOSED':
+    if complaint.is_closed:
         messages.error(request, _('Cannot update status of a closed complaint.'))
         if request.user.is_superuser or request.user.is_staff:
             return redirect('dashboard')
@@ -456,11 +559,66 @@ def update_complaint_status(request, complaint_id):
     new_status = request.POST.get('status')
     
     if new_status in dict(Complaint.STATUS_CHOICES):
+        old_status = complaint.status
         complaint.status = new_status
         complaint.save()
+        
+        # If this is a parent complaint and status changes, update all daughter complaints
+        if complaint.parent_complaint is None and complaint.daughter_complaints.exists():
+            if new_status != 'IN_PROGRESS':
+                # Auto-resolve all daughter complaints when parent status changes away from IN_PROGRESS
+                complaint.daughter_complaints.filter(is_closed=False).update(
+                    status='RESOLVED',
+                    updated_at=timezone.now()
+                )
+                messages.info(request, _('All related intensity complaints have been auto-resolved.'))
+        
         messages.success(request, _('Complaint status updated to {status}').format(status=new_status))
     else:
         messages.error(request, _('Invalid status'))
+    
+    # Redirect based on user type
+    if request.user.is_superuser or request.user.is_staff:
+        return redirect('dashboard')
+    else:
+        return redirect('user_dashboard')
+
+@login_required
+@require_http_methods(['POST'])
+def close_complaint(request, complaint_id):
+    complaint = get_object_or_404(Complaint, id=complaint_id)
+    
+    # Check permissions - users can only close complaints for their station
+    if not request.user.is_superuser and not request.user.is_staff:
+        try:
+            user_station = request.user.managed_station
+            if complaint.station != user_station:
+                raise PermissionDenied(_("You don't have permission to close this complaint."))
+        except Station.DoesNotExist:
+            raise PermissionDenied(_("You don't have a station assigned."))
+    elif not request.user.is_superuser and complaint.station.city.admin != request.user:
+        raise PermissionDenied(_("You don't have permission to close this complaint."))
+    
+    # Prevent double-closing
+    if complaint.is_closed:
+        messages.error(request, _('Complaint is already closed.'))
+    else:
+        # Close the complaint
+        complaint.is_closed = True
+        complaint.closed_at = timezone.now()
+        complaint.closed_status = complaint.status
+        complaint.save()
+        
+        # If this is a parent complaint, close all daughter complaints too
+        if complaint.parent_complaint is None and complaint.daughter_complaints.exists():
+            complaint.daughter_complaints.filter(is_closed=False).update(
+                is_closed=True,
+                closed_at=timezone.now(),
+                closed_status=models.F('status')
+            )
+            messages.info(request, _('All related intensity complaints have been closed as well.'))
+        
+        messages.success(request, _('Complaint has been closed successfully.'))
     
     # Redirect based on user type
     if request.user.is_superuser or request.user.is_staff:
@@ -485,7 +643,7 @@ def assign_worker(request, complaint_id):
         raise PermissionDenied(_("You don't have permission to assign workers to this complaint."))
     
     # Prevent changes to closed complaints
-    if complaint.status == 'CLOSED':
+    if complaint.is_closed:
         messages.error(request, _('Cannot assign worker to a closed complaint.'))
         if request.user.is_superuser or request.user.is_staff:
             return redirect('dashboard')
@@ -559,19 +717,111 @@ def station_analytics(request):
     pending_complaints = complaints.filter(status='PENDING').count()
     in_progress_complaints = complaints.filter(status='IN_PROGRESS').count()
     resolved_complaints = complaints.filter(status='RESOLVED').count()
-    closed_complaints = complaints.filter(status='CLOSED').count()
+    closed_complaints = complaints.filter(is_closed=True).count()
+    
+    # Daily Analytics - Today's statistics
+    today = timezone.now().date()
+    today_complaints = complaints.filter(created_at__date=today)
+    today_stats = {
+        'total': today_complaints.count(),
+        'pending': today_complaints.filter(status='PENDING').count(),
+        'in_progress': today_complaints.filter(status='IN_PROGRESS').count(),
+        'resolved': today_complaints.filter(status='RESOLVED').count(),
+        'closed': today_complaints.filter(is_closed=True).count(),
+    }
+    
+    # Yesterday's statistics for comparison
+    yesterday = today - timedelta(days=1)
+    yesterday_complaints = complaints.filter(created_at__date=yesterday)
+    yesterday_stats = {
+        'total': yesterday_complaints.count(),
+        'pending': yesterday_complaints.filter(status='PENDING').count(),
+        'in_progress': yesterday_complaints.filter(status='IN_PROGRESS').count(),
+        'resolved': yesterday_complaints.filter(status='RESOLVED').count(),
+        'closed': yesterday_complaints.filter(is_closed=True).count(),
+    }
+    
+    # Daily trend (last 30 days)
+    thirty_days_ago = timezone.now() - timedelta(days=30)
+    daily_data = []
+    for i in range(30):
+        date = (timezone.now() - timedelta(days=i)).date()
+        day_complaints = complaints.filter(created_at__date=date)
+        daily_data.append({
+            'date': date.strftime('%Y-%m-%d'),
+            'date_display': date.strftime('%b %d'),
+            'total': day_complaints.count(),
+            'pending': day_complaints.filter(status='PENDING').count(),
+            'in_progress': day_complaints.filter(status='IN_PROGRESS').count(),
+            'resolved': day_complaints.filter(status='RESOLVED').count(),
+            'closed': day_complaints.filter(is_closed=True).count(),
+        })
+    daily_data.reverse()  # Show oldest to newest
+    
+    # Hourly pattern analysis (today)
+    hourly_stats = []
+    for hour in range(24):
+        hour_start = timezone.now().replace(hour=hour, minute=0, second=0, microsecond=0)
+        hour_end = hour_start + timedelta(hours=1)
+        hour_complaints = today_complaints.filter(
+            created_at__gte=hour_start,
+            created_at__lt=hour_end
+        )
+        hourly_stats.append({
+            'hour': hour,
+            'hour_display': f"{hour:02d}:00",
+            'count': hour_complaints.count(),
+        })
+    
+    # Weekly pattern (last 7 days)
+    weekly_stats = []
+    for i in range(7):
+        date = (timezone.now() - timedelta(days=i)).date()
+        day_complaints = complaints.filter(created_at__date=date)
+        weekly_stats.append({
+            'date': date,
+            'day_name': date.strftime('%A'),
+            'day_short': date.strftime('%a'),
+            'count': day_complaints.count(),
+        })
+    weekly_stats.reverse()
+    
+    # Top complaint locations (daily)
+    today_location_stats = []
+    for location in station.platform_locations.all():
+        location_today = today_complaints.filter(platform_location=location)
+        
+        # Get scan attempt data for this location
+        scan_attempts_today = QRScanAttempt.objects.filter(
+            platform_location=location,
+            last_attempt_at__date=today
+        )
+        total_scan_attempts = sum(attempt.attempt_count for attempt in scan_attempts_today)
+        
+        if location_today.count() > 0 or total_scan_attempts > 0:
+            today_location_stats.append({
+                'location': location,
+                'count': location_today.count(),
+                'pending': location_today.filter(status='PENDING').count(),
+                'resolved': location_today.filter(status='RESOLVED').count(),
+                'scan_attempts': total_scan_attempts,
+                'total_interest': location_today.count() + total_scan_attempts,  # Combined metric
+            })
+    today_location_stats.sort(key=lambda x: x['total_interest'], reverse=True)
     
     # Platform-wise statistics
     platform_stats = []
     for platform_num in range(1, station.total_platforms + 1):
         platform_complaints = complaints.filter(platform_location__platform_number=platform_num)
+        platform_today = today_complaints.filter(platform_location__platform_number=platform_num)
         platform_stats.append({
             'platform_number': platform_num,
             'total': platform_complaints.count(),
+            'today': platform_today.count(),
             'pending': platform_complaints.filter(status='PENDING').count(),
             'in_progress': platform_complaints.filter(status='IN_PROGRESS').count(),
             'resolved': platform_complaints.filter(status='RESOLVED').count(),
-            'closed': platform_complaints.filter(status='CLOSED').count(),
+            'closed': platform_complaints.filter(is_closed=True).count(),
         })
     
     # QR Location-wise statistics
@@ -589,7 +839,7 @@ def station_analytics(request):
     worker_stats = complaints.exclude(assigned_worker__isnull=True).exclude(assigned_worker='').values('assigned_worker').annotate(
         total_assigned=Count('id'),
         resolved_count=Count('id', filter=Q(status='RESOLVED')),
-        closed_count=Count('id', filter=Q(status='CLOSED'))
+        closed_count=Count('id', filter=Q(is_closed=True))
     ).order_by('-resolved_count')
     
     # Monthly trend (last 12 months)
@@ -613,8 +863,20 @@ def station_analytics(request):
     }
     
     # Recent activity (last 30 days)
-    thirty_days_ago = timezone.now() - timedelta(days=30)
     recent_complaints = complaints.filter(created_at__gte=thirty_days_ago).order_by('-created_at')[:10]
+    
+    # Calculate percentage changes from yesterday
+    def calculate_change(today_val, yesterday_val):
+        if yesterday_val == 0:
+            return 100 if today_val > 0 else 0
+        return round(((today_val - yesterday_val) / yesterday_val) * 100, 1)
+    
+    daily_changes = {
+        'total': calculate_change(today_stats['total'], yesterday_stats['total']),
+        'pending': calculate_change(today_stats['pending'], yesterday_stats['pending']),
+        'in_progress': calculate_change(today_stats['in_progress'], yesterday_stats['in_progress']),
+        'resolved': calculate_change(today_stats['resolved'], yesterday_stats['resolved']),
+    }
     
     context = {
         'station': station,
@@ -623,6 +885,17 @@ def station_analytics(request):
         'in_progress_complaints': in_progress_complaints,
         'resolved_complaints': resolved_complaints,
         'closed_complaints': closed_complaints,
+        
+        # Daily analytics
+        'today_stats': today_stats,
+        'yesterday_stats': yesterday_stats,
+        'daily_changes': daily_changes,
+        'daily_data': daily_data,
+        'hourly_stats': hourly_stats,
+        'weekly_stats': weekly_stats,
+        'today_location_stats': today_location_stats,
+        
+        # Existing analytics
         'platform_stats': platform_stats,
         'qr_location_stats': qr_location_stats,
         'worker_stats': worker_stats,
@@ -734,6 +1007,7 @@ def manage_station(request):
             'id': location.id,
             'platform_number': location.platform_number,
             'location_description': location.location_description,
+            'hash_id': location.hash_id,
             'qr_code_url': location.qr_code.url if location.qr_code else None,
             'has_complaints': has_complaints
         })

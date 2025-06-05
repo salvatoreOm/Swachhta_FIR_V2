@@ -3,7 +3,7 @@ from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import User
-from .models import City, Station, LocationType, PlatformLocation, Complaint, ComplaintPhoto, OTPVerification, UserProfile
+from .models import City, Station, LocationType, PlatformLocation, Complaint, ComplaintPhoto, OTPVerification, UserProfile, QRScanAttempt
 
 class CityAdmin(admin.ModelAdmin):
     list_display = ('name', 'code', 'admin')
@@ -104,6 +104,19 @@ class UserProfileAdmin(admin.ModelAdmin):
                 kwargs["queryset"] = User.objects.filter(is_superuser=False, is_staff=False)
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
+class QRScanAttemptAdmin(admin.ModelAdmin):
+    list_display = ('platform_location', 'original_complaint', 'attempt_count', 'last_attempt_at', 'created_at')
+    list_filter = ('platform_location__station', 'platform_location__platform_number', 'created_at', 'last_attempt_at')
+    search_fields = ('platform_location__hash_id', 'platform_location__location_description', 'original_complaint__complaint_number')
+    readonly_fields = ('created_at', 'last_attempt_at')
+    ordering = ['-last_attempt_at']
+    
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if not request.user.is_superuser:
+            return qs.filter(platform_location__station__city__admin=request.user)
+        return qs
+
 admin.site.register(City, CityAdmin)
 admin.site.register(Station, StationAdmin)
 admin.site.register(LocationType)
@@ -111,3 +124,4 @@ admin.site.register(Complaint, ComplaintAdmin)
 admin.site.register(ComplaintPhoto)
 admin.site.register(OTPVerification)
 admin.site.register(UserProfile, UserProfileAdmin)
+admin.site.register(QRScanAttempt, QRScanAttemptAdmin)

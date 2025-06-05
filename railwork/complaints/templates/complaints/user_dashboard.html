@@ -1,78 +1,89 @@
 {% extends 'complaints/base.html' %}
 {% load i18n %}
 
-{% block title %}{% trans "Station Dashboard" %} - {% trans "Railway Station Cleanliness" %}{% endblock %}
+{% block title %}{% trans "Station Manager Dashboard" %}{% endblock %}
 
 {% block extra_css %}
 <style>
-    .nav-tabs .nav-link {
-        color: #375BA4;
+    .analytics-card {
         border: none;
-        border-bottom: 3px solid transparent;
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        transition: all 0.15s ease-in-out;
     }
-    .nav-tabs .nav-link.active {
-        color: #375BA4;
-        background-color: transparent;
-        border-bottom: 3px solid #375BA4;
-        font-weight: bold;
+    .analytics-card:hover {
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
     }
-    .nav-tabs .nav-link:hover {
-        border-bottom: 3px solid #375BA4;
-        background-color: transparent;
+    .tab-content {
+        min-height: 400px;
+    }
+    .intensity-badge {
+        background-color: #ff6b6b;
+        color: white;
+        font-size: 0.75em;
+        padding: 2px 6px;
+        border-radius: 10px;
+        margin-left: 5px;
+    }
+    .parent-complaint {
+        background-color: #fff3cd;
+        border-left: 4px solid #ffc107;
+    }
+    .daughter-complaint {
+        background-color: #f8f9fa;
+        border-left: 4px solid #6c757d;
+        margin-left: 20px;
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2>{% trans "Station Dashboard" %} - {{ user_station.name }}</h2>
-        <div>
-            <span class="me-3">{% trans "Welcome" %}, {{ user.first_name|default:user.username }}!</span>
-            <a href="{% url 'user_logout' %}" class="btn btn-outline-secondary">
-                {% trans "Logout" %}
-            </a>
-        </div>
-    </div>
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <h2 class="mb-4">
+                <i class="fas fa-tachometer-alt me-2"></i>{% trans "Station Manager Dashboard" %}
+                <small class="text-muted">- {{ user_station.name }}</small>
+            </h2>
 
-    {% if messages %}
-        {% for message in messages %}
-            <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
-                {{ message }}
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-        {% endfor %}
-    {% endif %}
+            <!-- Navigation Tabs -->
+            <ul class="nav nav-tabs mb-4" id="dashboardTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <a class="nav-link {% if active_tab == 'recent' %}active{% endif %}" 
+                       href="?tab=recent" id="recent-tab">
+                        <i class="fas fa-clock me-2"></i>{% trans "Recent Complaints" %}
+                    </a>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <a class="nav-link {% if active_tab == 'closed' %}active{% endif %}" 
+                       href="?tab=closed" id="closed-tab">
+                        <i class="fas fa-archive me-2"></i>{% trans "Closed Complaints" %}
+                    </a>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <a class="nav-link" href="{% url 'station_analytics' %}">
+                        <i class="fas fa-chart-bar me-2"></i>{% trans "Analytics" %}
+                    </a>
+                </li>
+            </ul>
 
-    <!-- Navigation Tabs -->
-    <ul class="nav nav-tabs mb-4" id="dashboardTabs" role="tablist">
-        <li class="nav-item" role="presentation">
-            <button class="nav-link active" id="dashboard-tab" data-bs-toggle="tab" data-bs-target="#dashboard-content" type="button" role="tab">
-                <i class="fas fa-tachometer-alt me-2"></i>{% trans "Dashboard" %}
-            </button>
-        </li>
-        <li class="nav-item" role="presentation">
-            <a class="nav-link" href="{% url 'station_analytics' %}">
-                <i class="fas fa-chart-bar me-2"></i>{% trans "Analytics" %}
-            </a>
-        </li>
-    </ul>
-
-    <!-- Tab Content -->
-    <div class="tab-content" id="dashboardTabContent">
-        <div class="tab-pane fade show active" id="dashboard-content" role="tabpanel">
             <!-- Statistics Cards -->
             <div class="row mb-4">
                 <div class="col-md-3">
-                    <div class="card text-white" style="background-color: #375BA4;">
+                    <div class="card text-white analytics-card" style="background-color: #375BA4;">
                         <div class="card-body">
-                            <h5 class="card-title">{% trans "Total Complaints" %}</h5>
+                            <h5 class="card-title">
+                                {% if active_tab == 'closed' %}
+                                    {% trans "Total Closed" %}
+                                {% else %}
+                                    {% trans "Total Active" %}
+                                {% endif %}
+                            </h5>
                             <h2>{{ total_complaints }}</h2>
                         </div>
                     </div>
                 </div>
                 <div class="col-md-3">
-                    <div class="card text-white bg-warning">
+                    <div class="card text-white bg-warning analytics-card">
                         <div class="card-body">
                             <h5 class="card-title">{% trans "Pending" %}</h5>
                             <h2>{{ pending_complaints }}</h2>
@@ -80,7 +91,7 @@
                     </div>
                 </div>
                 <div class="col-md-3">
-                    <div class="card text-white bg-info">
+                    <div class="card text-white bg-info analytics-card">
                         <div class="card-body">
                             <h5 class="card-title">{% trans "In Progress" %}</h5>
                             <h2>{{ in_progress_complaints }}</h2>
@@ -88,7 +99,7 @@
                     </div>
                 </div>
                 <div class="col-md-3">
-                    <div class="card text-white bg-success">
+                    <div class="card text-white bg-success analytics-card">
                         <div class="card-body">
                             <h5 class="card-title">{% trans "Resolved" %}</h5>
                             <h2>{{ resolved_complaints }}</h2>
@@ -127,7 +138,13 @@
             <!-- Complaints Table -->
             <div class="card">
                 <div class="card-header" style="background-color: #375BA4; color: white;">
-                    <h5 class="mb-0">{% trans "Recent Complaints" %}</h5>
+                    <h5 class="mb-0">
+                        {% if active_tab == 'closed' %}
+                            <i class="fas fa-archive me-2"></i>{% trans "Closed Complaints" %}
+                        {% else %}
+                            <i class="fas fa-clock me-2"></i>{% trans "Recent Complaints" %}
+                        {% endif %}
+                    </h5>
                 </div>
                 <div class="card-body">
                     {% if complaints %}
@@ -136,7 +153,7 @@
                                 <thead>
                                     <tr>
                                         <th>{% trans "Complaint #" %}</th>
-                                        <th>{% trans "Date" %}</th>
+                                        <th>{% trans "Date & Time" %}</th>
                                         <th>{% trans "Platform" %}</th>
                                         <th>{% trans "Location" %}</th>
                                         <th>{% trans "Description" %}</th>
@@ -144,14 +161,29 @@
                                         <th>{% trans "Reporter" %}</th>
                                         <th>{% trans "Status" %}</th>
                                         <th>{% trans "Assigned Worker" %}</th>
+                                        {% if active_tab != 'closed' %}
                                         <th>{% trans "Actions" %}</th>
+                                        {% endif %}
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {% for complaint in complaints %}
-                                        <tr>
-                                            <td>{{ complaint.complaint_number }}</td>
-                                            <td>{{ complaint.created_at|date:"d/m/Y H:i" }}</td>
+                                        <tr class="{% if complaint.parent_complaint %}daughter-complaint{% elif complaint.daughter_complaints.exists %}parent-complaint{% endif %}">
+                                            <td>
+                                                {{ complaint.complaint_number }}
+                                                {% if complaint.parent_complaint %}
+                                                    <span class="intensity-badge">{{ complaint.intensity_count }}</span>
+                                                {% elif complaint.daughter_complaints.exists %}
+                                                    <span class="badge bg-warning">{% trans "Parent" %}</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                {% if active_tab == 'closed' %}
+                                                    {{ complaint.closed_at|date:"d/m/Y g:i A" }}
+                                                {% else %}
+                                                    {{ complaint.created_at|date:"d/m/Y g:i A" }}
+                                                {% endif %}
+                                            </td>
                                             <td>
                                                 {% if complaint.platform_location %}
                                                     {{ complaint.platform_location.platform_number }}
@@ -162,6 +194,9 @@
                                             <td>
                                                 {% if complaint.platform_location %}
                                                     {{ complaint.platform_location.location_description }}
+                                                    {% if complaint.platform_location.hash_id %}
+                                                        <small class="text-muted">({{ complaint.platform_location.hash_id }})</small>
+                                                    {% endif %}
                                                 {% else %}
                                                     -
                                                 {% endif %}
@@ -187,37 +222,42 @@
                                                     <span class="text-muted">-</span>
                                                 {% endif %}
                                             </td>
-                                            <td>{{ complaint.reporter_name }}</td>
+                                            <td>{{ complaint.reporter_name|default:"-" }}</td>
                                             <td>
-                                                <span class="badge 
-                                                    {% if complaint.status == 'PENDING' %}bg-warning
-                                                    {% elif complaint.status == 'IN_PROGRESS' %}bg-info
-                                                    {% elif complaint.status == 'RESOLVED' %}bg-success
-                                                    {% else %}bg-secondary{% endif %}">
-                                                    {{ complaint.get_status_display }}
-                                                </span>
+                                                {% if active_tab == 'closed' %}
+                                                    <span class="badge bg-secondary">{% trans "Closed" %}</span>
+                                                    <small class="d-block text-muted">
+                                                        {% trans "Was" %}: {{ complaint.get_closed_status_display }}
+                                                    </small>
+                                                {% else %}
+                                                    <span class="badge 
+                                                        {% if complaint.status == 'PENDING' %}bg-warning
+                                                        {% elif complaint.status == 'IN_PROGRESS' %}bg-info
+                                                        {% elif complaint.status == 'RESOLVED' %}bg-success
+                                                        {% endif %}">
+                                                        {{ complaint.get_status_display }}
+                                                    </span>
+                                                {% endif %}
                                             </td>
                                             <td>{{ complaint.assigned_worker|default:"-" }}</td>
+                                            {% if active_tab != 'closed' %}
                                             <td>
-                                                {% if complaint.status == 'CLOSED' %}
-                                                    <span class="text-muted small">{% trans "Closed - No changes allowed" %}</span>
-                                                {% else %}
-                                                    <div class="btn-group" role="group">
-                                                        <!-- Status Update Form -->
-                                                        <form method="post" action="{% url 'update_status' complaint.id %}" class="d-inline">
-                                                            {% csrf_token %}
-                                                            <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
-                                                                <option value="">{% trans "Update Status" %}</option>
-                                                                {% for status_value, status_label in complaint.STATUS_CHOICES %}
-                                                                    <option value="{{ status_value }}" {% if complaint.status == status_value %}selected{% endif %}>
-                                                                        {{ status_label }}
-                                                                    </option>
-                                                                {% endfor %}
-                                                            </select>
-                                                        </form>
-                                                    </div>
+                                                <div class="btn-group-vertical" role="group">
+                                                    <!-- Status Update Form -->
+                                                    <form method="post" action="{% url 'update_status' complaint.id %}" class="mb-1">
+                                                        {% csrf_token %}
+                                                        <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                                                            <option value="">{% trans "Update Status" %}</option>
+                                                            {% for status_value, status_label in complaint.STATUS_CHOICES %}
+                                                                <option value="{{ status_value }}" {% if complaint.status == status_value %}selected{% endif %}>
+                                                                    {{ status_label }}
+                                                                </option>
+                                                            {% endfor %}
+                                                        </select>
+                                                    </form>
+                                                    
                                                     <!-- Assign Worker Form -->
-                                                    <form method="post" action="{% url 'assign_worker' complaint.id %}" class="mt-2">
+                                                    <form method="post" action="{% url 'assign_worker' complaint.id %}" class="mb-1">
                                                         {% csrf_token %}
                                                         <div class="input-group input-group-sm">
                                                             <input type="text" name="worker_name" class="form-control" 
@@ -228,15 +268,34 @@
                                                             </button>
                                                         </div>
                                                     </form>
-                                                {% endif %}
+                                                    
+                                                    <!-- Close Complaint Form -->
+                                                    <form method="post" action="{% url 'close_complaint' complaint.id %}" class="mb-1" 
+                                                          onsubmit="return confirm('Are you sure you want to close this complaint?')">
+                                                        {% csrf_token %}
+                                                        <button type="submit" class="btn btn-danger btn-sm w-100">
+                                                            <i class="fas fa-times me-1"></i>{% trans "Close" %}
+                                                        </button>
+                                                    </form>
+                                                </div>
                                             </td>
+                                            {% endif %}
                                         </tr>
                                     {% endfor %}
                                 </tbody>
                             </table>
                         </div>
                     {% else %}
-                        <p class="text-muted">{% trans "No complaints found for your station." %}</p>
+                        <div class="text-center py-5">
+                            <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                            <p class="text-muted">
+                                {% if active_tab == 'closed' %}
+                                    {% trans "No closed complaints found for your station." %}
+                                {% else %}
+                                    {% trans "No active complaints found for your station." %}
+                                {% endif %}
+                            </p>
+                        </div>
                     {% endif %}
                 </div>
             </div>

@@ -31,6 +31,7 @@ urlpatterns = [
     path('submit-complaint/', views.submit_complaint, name='submit_complaint_qr'),
     path('verify-otp/<int:complaint_id>/', views.verify_otp, name='verify_otp'),
     path('success/<int:complaint_id>/', views.complaint_success, name='complaint_success'),
+    path('already-in-progress/<str:hash_id>/<int:existing_complaint_id>/', views.complaint_already_in_progress, name='complaint_already_in_progress'),
     
     # QR code generation
     path('qr/<str:station_code>/<int:platform_number>/', views.generate_station_qr, name='generate_station_qr'),
@@ -43,6 +44,7 @@ urlpatterns = [
     # Complaint management
     path('update-status/<int:complaint_id>/', views.update_complaint_status, name='update_status'),
     path('assign-worker/<int:complaint_id>/', views.assign_worker, name='assign_worker'),
+    path('close-complaint/<int:complaint_id>/', views.close_complaint, name='close_complaint'),
     
     # Photo viewing
     path('view-photo/<int:photo_id>/', views.view_complaint_photo, name='view_complaint_photo'),
