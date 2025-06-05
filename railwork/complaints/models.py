@@ -68,12 +68,12 @@ class PlatformLocation(models.Model):
     # Replace location_type with custom location description
     location_type = models.ForeignKey(LocationType, on_delete=models.CASCADE, null=True, blank=True)  # Keep for backward compatibility
     location_description = models.CharField(_('Location Description'), max_length=200, default='General Area', help_text=_('Custom description of the location (e.g., "Near Ticket Counter", "Platform Entry", "Waiting Area")'))
-    hash_id = models.CharField(_('Hash ID'), max_length=10, blank=True, help_text=_('Format: P[platform][sequence] (e.g., P11, P12, P21)'))
+    hash_id = models.CharField(_('Hash ID'), max_length=15, blank=True, help_text=_('Format: (Platform Number/QR Number) (e.g., (1/1), (1/2), (2/1))'))
     qr_code = models.ImageField(upload_to='qr_codes/', blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     
     def generate_hash_id(self):
-        """Generate hash_id in format P[platform][sequence]"""
+        """Generate hash_id in format (Platform Number/QR Number)"""
         # Count existing locations for this platform
         existing_count = PlatformLocation.objects.filter(
             station=self.station,
@@ -83,8 +83,8 @@ class PlatformLocation(models.Model):
         # Sequence number is existing_count + 1
         sequence = existing_count + 1
         
-        # Format: P + platform_number + sequence_number
-        self.hash_id = f"P{self.platform_number}{sequence}"
+        # Format: (Platform Number/QR Number)
+        self.hash_id = f"({self.platform_number}/{sequence})"
     
     def generate_qr_code(self):
         qr = qrcode.QRCode(
@@ -255,3 +255,56 @@ class OTPVerification(models.Model):
     class Meta:
         verbose_name = _('OTP Verification')
         verbose_name_plural = _('OTP Verifications')
+
+class SupportRequest(models.Model):
+    PRIORITY_CHOICES = [
+        ('low', _('Low - General inquiry')),
+        ('medium', _('Medium - System issue affecting work')),
+        ('high', _('High - Urgent issue affecting operations')),
+        ('critical', _('Critical - System down/emergency')),
+    ]
+    
+    CATEGORY_CHOICES = [
+        ('login_access', _('Login/Access Issues')),
+        ('complaint_management', _('Complaint Management')),
+        ('qr_codes', _('QR Code Issues')),
+        ('reports_analytics', _('Reports & Analytics')),
+        ('system_performance', _('System Performance')),
+        ('training_help', _('Training & Help')),
+        ('other', _('Other')),
+    ]
+    
+    STATUS_CHOICES = [
+        ('open', _('Open')),
+        ('in_progress', _('In Progress')),
+        ('resolved', _('Resolved')),
+        ('closed', _('Closed')),
+    ]
+    
+    station = models.ForeignKey(Station, on_delete=models.CASCADE, verbose_name=_('Station'))
+    manager = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name=_('Manager'))
+    manager_name = models.CharField(_('Manager Name'), max_length=100)
+    manager_email = models.EmailField(_('Manager Email'))
+    manager_phone = models.CharField(_('Manager Phone'), max_length=15)
+    
+    issue_category = models.CharField(_('Issue Category'), max_length=50, choices=CATEGORY_CHOICES)
+    priority = models.CharField(_('Priority'), max_length=20, choices=PRIORITY_CHOICES)
+    issue_description = models.TextField(_('Issue Description'))
+    steps_to_reproduce = models.TextField(_('Steps to Reproduce'), blank=True, null=True)
+    
+    status = models.CharField(_('Status'), max_length=20, choices=STATUS_CHOICES, default='open')
+    created_at = models.DateTimeField(_('Created At'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('Updated At'), auto_now=True)
+    
+    # Admin fields
+    assigned_to = models.CharField(_('Assigned To'), max_length=100, blank=True, null=True)
+    admin_notes = models.TextField(_('Admin Notes'), blank=True, null=True)
+    resolved_at = models.DateTimeField(_('Resolved At'), blank=True, null=True)
+    
+    def __str__(self):
+        return f"Support Request #{self.id} - {self.station.name} - {self.get_priority_display()}"
+    
+    class Meta:
+        verbose_name = _('Support Request')
+        verbose_name_plural = _('Support Requests')
+        ordering = ['-created_at']

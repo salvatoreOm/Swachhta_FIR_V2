@@ -1,0 +1,133 @@
+{% extends 'complaints/base.html' %}
+{% load i18n %}
+{% load static %}
+
+{% block title %}{% trans "Technical Support" %}{% endblock %}
+
+{% block extra_css %}
+<style>
+    body {
+        background-image: url("{% static 'complaints/images/Banner.jpeg' %}");
+        background-repeat: no-repeat;
+        background-attachment: fixed;
+        background-size: cover;
+        background-position: center;
+    }
+    
+    body::before {
+        content: '';
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(255, 255, 255, 0.75);
+        z-index: -1;
+    }
+    
+    .card {
+        background-color: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(5px);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header" style="background-color: #375BA4; color: white;">
+                    <h4 class="mb-0">
+                        <i class="fas fa-headset me-2"></i>{% trans "Technical Support" %}
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted mb-4">
+                        {% trans "Need help with the complaint management system? Please fill out the form below and our technical team will get back to you." %}
+                    </p>
+
+                    <form method="post">
+                        {% csrf_token %}
+                        
+                        <!-- Station Information (auto-filled) -->
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label"><strong>{% trans "Station Name" %}</strong></label>
+                                <input type="text" class="form-control" value="{{ user_station.name }}" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label"><strong>{% trans "Station Code" %}</strong></label>
+                                <input type="text" class="form-control" value="{{ user_station.station_code }}" readonly>
+                            </div>
+                        </div>
+
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label"><strong>{% trans "Manager Name" %}</strong></label>
+                                <input type="text" class="form-control" name="manager_name" value="{{ user.get_full_name|default:user.username }}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label"><strong>{% trans "Contact Email" %}</strong></label>
+                                <input type="email" class="form-control" name="manager_email" value="{{ user.email }}" required>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label"><strong>{% trans "Phone Number" %}</strong></label>
+                            <input type="tel" class="form-control" name="manager_phone" placeholder="{% trans 'Your contact number' %}" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label"><strong>{% trans "Issue Category" %}</strong></label>
+                            <select class="form-select" name="issue_category" required>
+                                <option value="">{% trans "Select issue category" %}</option>
+                                <option value="login_access">{% trans "Login/Access Issues" %}</option>
+                                <option value="complaint_management">{% trans "Complaint Management" %}</option>
+                                <option value="qr_codes">{% trans "QR Code Issues" %}</option>
+                                <option value="reports_analytics">{% trans "Reports & Analytics" %}</option>
+                                <option value="system_performance">{% trans "System Performance" %}</option>
+                                <option value="training_help">{% trans "Training & Help" %}</option>
+                                <option value="other">{% trans "Other" %}</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label"><strong>{% trans "Priority Level" %}</strong></label>
+                            <select class="form-select" name="priority" required>
+                                <option value="">{% trans "Select priority" %}</option>
+                                <option value="low">{% trans "Low - General inquiry" %}</option>
+                                <option value="medium">{% trans "Medium - System issue affecting work" %}</option>
+                                <option value="high">{% trans "High - Urgent issue affecting operations" %}</option>
+                                <option value="critical">{% trans "Critical - System down/emergency" %}</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label"><strong>{% trans "Issue Description" %}</strong></label>
+                            <textarea class="form-control" name="issue_description" rows="5" 
+                                      placeholder="{% trans 'Please describe the issue in detail, including any error messages or steps that led to the problem.' %}" 
+                                      required></textarea>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label"><strong>{% trans "Steps to Reproduce (Optional)" %}</strong></label>
+                            <textarea class="form-control" name="steps_to_reproduce" rows="3" 
+                                      placeholder="{% trans 'If applicable, please list the steps to reproduce the issue.' %}"></textarea>
+                        </div>
+
+                        <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                            <a href="{% url 'user_dashboard' %}" class="btn btn-secondary me-md-2">
+                                <i class="fas fa-arrow-left me-1"></i>{% trans "Back to Dashboard" %}
+                            </a>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-paper-plane me-1"></i>{% trans "Submit Support Request" %}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

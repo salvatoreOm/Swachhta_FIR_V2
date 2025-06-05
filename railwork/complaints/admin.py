@@ -3,7 +3,7 @@ from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import User
-from .models import City, Station, LocationType, PlatformLocation, Complaint, ComplaintPhoto, OTPVerification, UserProfile, QRScanAttempt
+from .models import City, Station, LocationType, PlatformLocation, Complaint, ComplaintPhoto, OTPVerification, UserProfile, QRScanAttempt, SupportRequest
 
 class CityAdmin(admin.ModelAdmin):
     list_display = ('name', 'code', 'admin')
@@ -117,6 +117,20 @@ class QRScanAttemptAdmin(admin.ModelAdmin):
             return qs.filter(platform_location__station__city__admin=request.user)
         return qs
 
+class SupportRequestAdmin(admin.ModelAdmin):
+    list_display = ('id', 'station', 'manager_name', 'issue_category', 'priority', 'status', 'created_at', 'assigned_to')
+    list_filter = ('status', 'priority', 'issue_category', 'station__city', 'created_at')
+    search_fields = ('manager_name', 'manager_email', 'station__name', 'issue_description')
+    readonly_fields = ('created_at', 'updated_at', 'station', 'manager', 'manager_name', 'manager_email', 'manager_phone', 'issue_description', 'steps_to_reproduce')
+    fields = ('station', 'manager', 'manager_name', 'manager_email', 'manager_phone', 'issue_category', 'priority', 'issue_description', 'steps_to_reproduce', 'status', 'assigned_to', 'admin_notes', 'resolved_at', 'created_at', 'updated_at')
+    ordering = ['-created_at']
+    
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if not request.user.is_superuser:
+            return qs.filter(station__city__admin=request.user)
+        return qs
+
 admin.site.register(City, CityAdmin)
 admin.site.register(Station, StationAdmin)
 admin.site.register(LocationType)
@@ -125,3 +139,4 @@ admin.site.register(ComplaintPhoto)
 admin.site.register(OTPVerification)
 admin.site.register(UserProfile, UserProfileAdmin)
 admin.site.register(QRScanAttempt, QRScanAttemptAdmin)
+admin.site.register(SupportRequest, SupportRequestAdmin)

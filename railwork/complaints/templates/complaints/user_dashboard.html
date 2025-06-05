@@ -75,7 +75,7 @@
                 <li class="nav-item" role="presentation">
                     <a class="nav-link {% if active_tab == 'recent' %}active{% endif %}" 
                        href="?tab=recent" id="recent-tab">
-                        <i class="fas fa-clock me-2"></i>{% trans "Recent Complaints" %}
+                        <i class="fas fa-clock me-2"></i>{% trans "Active Complaints" %}
                     </a>
                 </li>
                 <li class="nav-item" role="presentation">
@@ -133,7 +133,8 @@
                 </div>
             </div>
 
-            <!-- Station Info -->
+            <!-- Station Info (only show on recent/active tab) -->
+            {% if active_tab != 'closed' %}
             <div class="card mb-4">
                 <div class="card-header" style="background-color: #375BA4; color: white;">
                     <h5 class="mb-0">{% trans "Station Information" %}</h5>
@@ -153,12 +154,16 @@
                         <a href="{% url 'download_qr_codes' user_station.id %}" class="btn btn-primary me-2">
                             <i class="fas fa-download"></i> {% trans "Download QR Codes" %}
                         </a>
-                        <a href="{% url 'manage_station' %}" class="btn btn-outline-primary">
+                        <a href="{% url 'manage_station' %}" class="btn btn-outline-primary me-2">
                             <i class="fas fa-edit"></i> {% trans "Manage Station" %}
+                        </a>
+                        <a href="{% url 'support_request' %}" class="btn btn-outline-warning">
+                            <i class="fas fa-headset"></i> {% trans "Technical Support" %}
                         </a>
                     </div>
                 </div>
             </div>
+            {% endif %}
 
             <!-- Complaints Table -->
             <div class="card">
@@ -167,7 +172,7 @@
                         {% if active_tab == 'closed' %}
                             <i class="fas fa-archive me-2"></i>{% trans "Closed Complaints" %}
                         {% else %}
-                            <i class="fas fa-clock me-2"></i>{% trans "Recent Complaints" %}
+                            <i class="fas fa-clock me-2"></i>{% trans "Active Complaints" %}
                         {% endif %}
                     </h5>
                 </div>
@@ -200,6 +205,7 @@
                                                     <span class="intensity-badge">{{ complaint.intensity_count }}</span>
                                                 {% elif complaint.daughter_complaints.exists %}
                                                     <span class="badge bg-warning">{% trans "Parent" %}</span>
+                                                    <small class="text-muted d-block">({{ complaint.daughter_complaints.count }} redundant)</small>
                                                 {% endif %}
                                             </td>
                                             <td>
@@ -327,4 +333,18 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Auto-refresh dashboard every 24 hours (86400000 milliseconds) for active complaints
+    var activeTab = '{{ active_tab }}';
+    if (activeTab !== 'closed') {
+        setTimeout(function() {
+            window.location.reload();
+        }, 86400000); // 24 hours in milliseconds
+    }
+});
+</script>
 {% endblock %} 

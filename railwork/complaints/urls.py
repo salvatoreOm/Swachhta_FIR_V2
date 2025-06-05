@@ -49,6 +49,9 @@ urlpatterns = [
     # Photo viewing
     path('view-photo/<int:photo_id>/', views.view_complaint_photo, name='view_complaint_photo'),
     
+    # Support
+    path('support/', views.support_request, name='support_request'),
+    
     # Utility pages
     path('success/', lambda request: render(request, 'complaints/success.html'), name='success'),
     path('error/', lambda request: render(request, 'complaints/error.html'), name='error'),

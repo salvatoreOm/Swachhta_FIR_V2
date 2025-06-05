@@ -117,7 +117,7 @@
 
             <div class="row">
                 <div class="col-md-12">
-                    <h4>{% trans "Recent Complaints" %}</h4>
+                    <h4>{% trans "Active Complaints" %}</h4>
                     <div class="table-responsive">
                         <table class="table">
                             <thead>
@@ -137,7 +137,15 @@
                                 {% for complaint in complaints %}
                                 {% if complaint.station.city == city %}
                                 <tr>
-                                    <td>{{ complaint.complaint_number }}</td>
+                                    <td>
+                                        {{ complaint.complaint_number }}
+                                        {% if complaint.parent_complaint %}
+                                            <span class="intensity-badge" style="background-color: #ff6b6b; color: white; font-size: 0.75em; padding: 2px 6px; border-radius: 10px; margin-left: 5px;">{{ complaint.intensity_count }}</span>
+                                        {% elif complaint.daughter_complaints.exists %}
+                                            <span class="badge bg-warning">{% trans "Parent" %}</span>
+                                            <small class="text-muted d-block">({{ complaint.daughter_complaints.count }} redundant)</small>
+                                        {% endif %}
+                                    </td>
                                     <td>{{ complaint.station.name }}</td>
                                     <td>{% if complaint.platform_location %}{{ complaint.platform_location.platform_number }}{% else %}-{% endif %}</td>
                                     <td>{% if complaint.platform_location %}{{ complaint.platform_location.location_description }}{% else %}-{% endif %}</td>

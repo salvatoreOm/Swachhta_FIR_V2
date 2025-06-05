@@ -24,7 +24,7 @@ import random
 import string
 import requests
 from io import BytesIO
-from .models import Station, Complaint, OTPVerification, ComplaintPhoto, City, PlatformLocation, LocationType, UserProfile, QRScanAttempt
+from .models import Station, Complaint, OTPVerification, ComplaintPhoto, City, PlatformLocation, LocationType, UserProfile, QRScanAttempt, SupportRequest
 from .forms import ComplaintForm, OTPVerificationForm
 from django.core.exceptions import PermissionDenied
 import json
@@ -1017,3 +1017,88 @@ def manage_station(request):
         'existing_locations': json.dumps(existing_locations)
     }
     return render(request, 'complaints/manage_station.html', context)
+
+@login_required
+def support_request(request):
+    """Technical support form for station managers"""
+    # Only allow regular users (station managers)
+    if request.user.is_superuser or request.user.is_staff:
+        messages.error(request, _('Support requests are for station managers only.'))
+        return redirect('dashboard')
+    
+    # Get user's station
+    try:
+        user_profile = UserProfile.objects.get(user=request.user)
+        user_station = user_profile.station
+    except UserProfile.DoesNotExist:
+        try:
+            user_station = request.user.managed_station
+        except Station.DoesNotExist:
+            user_station = None
+    
+    if not user_station:
+        messages.error(request, _('No station assigned to your account.'))
+        return redirect('user_dashboard')
+    
+    if request.method == 'POST':
+        try:
+            # Create support request
+            support_request = SupportRequest.objects.create(
+                station=user_station,
+                manager=request.user,
+                manager_name=request.POST.get('manager_name'),
+                manager_email=request.POST.get('manager_email'),
+                manager_phone=request.POST.get('manager_phone'),
+                issue_category=request.POST.get('issue_category'),
+                priority=request.POST.get('priority'),
+                issue_description=request.POST.get('issue_description'),
+                steps_to_reproduce=request.POST.get('steps_to_reproduce', '')
+            )
+            
+            # Send email notification to technical team
+            if settings.EMAIL_HOST:
+                subject = f'[{support_request.get_priority_display()}] Support Request #{support_request.id} - {user_station.name}'
+                
+                message = f"""
+                New support request received:
+                
+                Station: {user_station.name} ({user_station.station_code})
+                Manager: {support_request.manager_name}
+                Email: {support_request.manager_email}
+                Phone: {support_request.manager_phone}
+                
+                Category: {support_request.get_issue_category_display()}
+                Priority: {support_request.get_priority_display()}
+                
+                Description:
+                {support_request.issue_description}
+                
+                Steps to Reproduce:
+                {support_request.steps_to_reproduce}
+                
+                Created at: {support_request.created_at}
+                """
+                
+                try:
+                    from django.core.mail import send_mail
+                    send_mail(
+                        subject,
+                        message,
+                        settings.DEFAULT_FROM_EMAIL,
+                        ['omparihar@zhecker.com'],  # Replace with your actual technical team email
+                        fail_silently=True,
+                    )
+                except Exception as e:
+                    print(f"Failed to send support email: {str(e)}")
+            
+            messages.success(request, _(f'Support request #{support_request.id} submitted successfully. Our technical team will contact you soon.'))
+            return redirect('user_dashboard')
+            
+        except Exception as e:
+            messages.error(request, _('Error submitting support request. Please try again.'))
+            print(f"Support request error: {str(e)}")
+    
+    context = {
+        'user_station': user_station,
+    }
+    return render(request, 'complaints/support_form.html', context)
