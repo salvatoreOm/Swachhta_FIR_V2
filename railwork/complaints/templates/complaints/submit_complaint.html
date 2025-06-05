@@ -1,11 +1,31 @@
 {% extends 'complaints/base.html' %}
 {% load i18n %}
 {% load crispy_forms_tags %}
+{% load static %}
 
 {% block title %}{% trans "Submit Complaint" %}{% endblock %}
 
 {% block extra_css %}
 <style>
+    body {
+        background-image: url("{% static 'complaints/images/Banner.jpeg' %}");
+        background-repeat: no-repeat;
+        background-attachment: fixed;
+        background-size: cover;
+        background-position: center;
+    }
+    
+    body::before {
+        content: '';
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(255, 255, 255, 0.75);
+        z-index: -1;
+    }
+
     .photo-preview {
         max-width: 200px;
         max-height: 200px;
@@ -15,18 +35,24 @@
         margin-bottom: 20px;
     }
     .location-details {
-        background-color: #f8f9fa;
+        background-color: rgba(248, 249, 250, 0.95);
         border: 1px solid #dee2e6;
         border-radius: 0.375rem;
         padding: 1rem;
         margin-bottom: 1rem;
+        backdrop-filter: blur(5px);
     }
     .qr-scan-note {
-        background-color: #fff3cd;
+        background-color: rgba(255, 243, 205, 0.95);
         border: 1px solid #ffeaa7;
         border-radius: 0.375rem;
         padding: 0.75rem;
         margin-bottom: 1rem;
+        backdrop-filter: blur(5px);
+    }
+    .card {
+        background-color: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(5px);
     }
 </style>
 {% endblock %}

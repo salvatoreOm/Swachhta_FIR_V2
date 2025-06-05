@@ -6,6 +6,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}{% endblock %} - {% trans "Swachhta FIR" %}</title>
+    <link rel="icon" type="image/png" href="{% static 'favicon.ico' %}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
@@ -45,6 +46,22 @@
             text-decoration: none;
             cursor: default;
         }
+        .navbar-brand-logo {
+            height: 40px;
+            width: auto;
+            margin-right: 10px;
+        }
+        .navbar-brand {
+            display: flex;
+            align-items: center;
+            color: white !important;
+            font-weight: bold;
+            font-size: 1.25rem;
+            text-decoration: none;
+        }
+        .navbar-brand:hover {
+            color: white !important;
+        }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
@@ -52,10 +69,16 @@
     <nav class="navbar navbar-expand-lg navbar-dark mb-4">
         <div class="container">
             {% if user.is_authenticated %}
-                <a class="navbar-brand" href="{% if user.is_superuser or user.is_staff %}{% url 'dashboard' %}{% else %}{% url 'user_dashboard' %}{% endif %}">{% trans "Swachhta FIR" %}</a>
+                <a class="navbar-brand" href="{% if user.is_superuser or user.is_staff %}{% url 'dashboard' %}{% else %}{% url 'user_dashboard' %}{% endif %}">
+                    <img src="{% static 'complaints/images/Logo.png' %}" alt="Logo" class="navbar-brand-logo">
+                    {% trans "Swachhta FIR" %}
+                </a>
             {% else %}
                 {% comment %}For public users (complaint submission, success pages), make it non-clickable{% endcomment %}
-                <span class="navbar-brand navbar-brand-text">{% trans "Swachhta FIR" %}</span>
+                <span class="navbar-brand navbar-brand-text">
+                    <img src="{% static 'complaints/images/Logo.png' %}" alt="Logo" class="navbar-brand-logo">
+                    {% trans "Swachhta FIR" %}
+                </span>
             {% endif %}
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
