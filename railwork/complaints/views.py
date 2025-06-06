@@ -19,6 +19,7 @@ from django.db.models import Count, Q
 from django.db.models.functions import TruncMonth
 from django.utils import timezone
 from datetime import datetime, timedelta
+from urllib.parse import quote, unquote
 import qrcode
 import random
 import string
@@ -131,8 +132,21 @@ def user_dashboard(request):
         in_progress_complaints = complaints.filter(status='IN_PROGRESS').count()
         resolved_complaints = complaints.filter(status='RESOLVED').count()
     
+    # Add QR scan attempt data for each complaint
+    complaints_with_scan_attempts = []
+    for complaint in complaints:
+        try:
+            scan_attempt = QRScanAttempt.objects.get(
+                platform_location=complaint.platform_location,
+                original_complaint=complaint
+            )
+            complaint.scan_attempt_count = scan_attempt.attempt_count
+        except QRScanAttempt.DoesNotExist:
+            complaint.scan_attempt_count = 0
+        complaints_with_scan_attempts.append(complaint)
+    
     context = {
-        'complaints': complaints,
+        'complaints': complaints_with_scan_attempts,
         'user_station': user_station,
         'total_complaints': total_complaints,
         'pending_complaints': pending_complaints,
@@ -219,7 +233,7 @@ def submit_complaint(request):
                     
                     # Don't create a new complaint - redirect to "already in progress" page
                     return redirect('complaint_already_in_progress', 
-                                  hash_id=complaint.platform_location.hash_id,
+                                  hash_id=quote(complaint.platform_location.hash_id, safe=''),
                                   existing_complaint_id=existing_recent_complaint.id)
                 
                 # If no recent complaint, proceed with parent-child logic for intensity tracking
@@ -345,6 +359,7 @@ def complaint_success(request, complaint_id):
 def complaint_already_in_progress(request, hash_id, existing_complaint_id):
     """Show page when user tries to submit complaint for location that already has recent complaint"""
     try:
+        decoded_hash_id = unquote(hash_id)
         existing_complaint = get_object_or_404(Complaint, id=existing_complaint_id)
         platform_location = existing_complaint.platform_location
         
@@ -365,7 +380,7 @@ def complaint_already_in_progress(request, hash_id, existing_complaint_id):
             total_attempts = 1
         
         context = {
-            'hash_id': hash_id,
+            'hash_id': decoded_hash_id,
             'platform_location': platform_location,
             'existing_complaint': existing_complaint,
             'minutes_ago': minutes_ago,

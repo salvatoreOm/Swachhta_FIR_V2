@@ -216,6 +216,9 @@
                                                     <span class="badge bg-warning">{% trans "Parent" %}</span>
                                                     <small class="text-muted d-block">({{ complaint.daughter_complaints.count }} redundant)</small>
                                                 {% endif %}
+                                                {% if complaint.scan_attempt_count > 0 %}
+                                                    <span class="intensity-badge" title="{% trans 'QR Scan Attempts' %}">{{ complaint.scan_attempt_count }}</span>
+                                                {% endif %}
                                             </td>
                                             <td>
                                                 {% if active_tab == 'closed' %}
